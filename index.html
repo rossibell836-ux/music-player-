@@ -1800,14 +1800,11 @@
       audio.currentTime = Math.min(details.seekTime, audio.duration);
       updateMediaSessionPosition();
     });
-    safeSetHandler('seekbackward', (details) => {
-      audio.currentTime = Math.max(0, audio.currentTime - (details.seekOffset || 10));
-      updateMediaSessionPosition();
-    });
-    safeSetHandler('seekforward', (details) => {
-      audio.currentTime = Math.min(audio.duration || audio.currentTime, audio.currentTime + (details.seekOffset || 10));
-      updateMediaSessionPosition();
-    });
+    // Deliberately NOT registering 'seekbackward'/'seekforward': on iOS,
+    // having those handlers set makes the lock screen show generic +/-10s
+    // skip buttons INSTEAD OF previous/next track buttons. Leaving them
+    // unset makes the OS fall back to previoustrack/nexttrack, which is
+    // what we actually want on the lock screen.
   }
 
   // ---------- Crossfade transitions ----------
