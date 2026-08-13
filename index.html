@@ -462,7 +462,7 @@
   ul.playlist li:hover { background: rgba(var(--brass-rgb), 0.07); }
   ul.playlist li[aria-current="true"] { background: rgba(var(--brass-rgb), 0.13); box-shadow: inset 3px 0 0 var(--brass); }
 
-  .track-index { width: 20px; text-align:center; font-size: 0.76rem; color: var(--paper-dim); flex-shrink: 0; }
+  .track-index { width: 24px; height: 24px; display:flex; align-items:center; justify-content:center; text-align:center; font-size: 0.76rem; color: var(--paper-dim); flex-shrink: 0; border-radius: 50%; }
   .track-index .eq-bars { display:inline-flex; align-items:flex-end; gap: 2px; height: 12px; }
   .track-index .eq-bars span { width: 2px; background: var(--brass); animation: eq 0.9s ease-in-out infinite; }
   .track-index .eq-bars span:nth-child(1){ height:40%; animation-delay:0s;}
@@ -470,6 +470,10 @@
   .track-index .eq-bars span:nth-child(3){ height:65%; animation-delay:0.4s;}
   @keyframes eq { 0%,100%{ transform: scaleY(0.4);} 50%{ transform: scaleY(1);} }
   @media (prefers-reduced-motion: reduce) { .track-index .eq-bars span { animation: none; height: 70% !important; } }
+  .li-play-icon { width: 15px; height: 15px; color: var(--paper-dim); opacity: 0.85; }
+  .li-play-icon.current { color: var(--brass-bright); }
+  ul.playlist li:hover .li-play-icon { color: var(--brass-bright); opacity: 1; }
+  ul.playlist li:hover .track-index { background: rgba(var(--brass-rgb), 0.15); }
 
   li .li-name { flex:1; min-width:0; font-size: 0.88rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   li .li-format {
@@ -537,6 +541,13 @@
   .btn-danger-ghost:hover { background: rgba(201,122,107,0.1); }
   .btn-icon-text { display:inline-flex; align-items:center; gap:6px; }
   .btn-icon-text svg { width: 15px; height: 15px; flex-shrink:0; }
+  .btn-accent {
+    border: 1px solid rgba(var(--brass-rgb), 0.45);
+    background: rgba(var(--brass-rgb), 0.14);
+    color: var(--brass-bright);
+    font-weight: 700;
+  }
+  .btn-accent:hover { background: rgba(var(--brass-rgb), 0.22); }
   .li-shuffle { flex-shrink:0; padding:6px; font-size:0.85rem; color: var(--paper-dim); border-radius:50%; }
   .li-shuffle svg { width:16px; height:16px; display:block; }
   .li-shuffle:hover { color: var(--brass-bright); background: rgba(var(--brass-rgb),0.1); }
@@ -796,7 +807,7 @@
       <div class="playlist-header">
         <h2>Tracks</h2>
         <span style="display:flex; align-items:center; gap:10px;">
-          <button class="btn-ghost btn-icon-text" id="btn-shuffle-play-library" aria-label="Shuffle play this list" style="padding:6px 12px; font-size:0.76rem;">
+          <button class="btn-ghost btn-icon-text btn-accent" id="btn-shuffle-play-library" aria-label="Shuffle play this list" style="padding:7px 14px; font-size:0.78rem;">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h3.3c1.1 0 2.1.55 2.7 1.45l6 8.1c.6.9 1.6 1.45 2.7 1.45H21M3 18h3.3c1.1 0 2.1-.55 2.7-1.45l1-1.35M17 3l4 3-4 3M17 15l4 3-4 3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
             Shuffle
           </button>
@@ -2507,7 +2518,8 @@
       }
       li.setAttribute('aria-current', isCurrent ? 'true' : 'false');
       li.setAttribute('aria-label',
-        (isCurrent ? 'Now playing. ' : '') + t.name + (t.favorite ? ', favorited' : '') + (t.duration ? ', ' + formatTime(t.duration) : '')
+        (isCurrent ? (audio.paused ? 'Paused. ' : 'Now playing. ') : '') + t.name + (t.favorite ? ', favorited' : '') + (t.duration ? ', ' + formatTime(t.duration) : '') +
+        (isCurrent ? '. Activate to restart from the beginning.' : '. Activate to play.')
       );
 
       let checkbox = null;
@@ -2524,8 +2536,10 @@
       idxWrap.className = 'track-index mono';
       if (isCurrent && !audio.paused) {
         idxWrap.innerHTML = '<span class="eq-bars" aria-hidden="true"><span></span><span></span><span></span></span>';
+      } else if (isCurrent) {
+        idxWrap.innerHTML = '<svg class="li-play-icon current" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>';
       } else {
-        idxWrap.textContent = (t.originalIndex + 1);
+        idxWrap.innerHTML = '<svg class="li-play-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>';
       }
 
       const name = document.createElement('span');
@@ -2628,9 +2642,9 @@
       if (selectionMode) {
         li.addEventListener('click', () => toggleSelected(t.id));
       } else if (renamingIndex !== t.originalIndex) {
-        li.addEventListener('click', () => playOrToggle(t.originalIndex));
+        li.addEventListener('click', () => playRowTrack(t.originalIndex));
         li.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); playOrToggle(t.originalIndex); }
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); playRowTrack(t.originalIndex); }
         });
       }
 
@@ -2792,10 +2806,18 @@
     updateMediaSessionPlaybackState(playing);
   }
 
-  function playOrToggle(index){
+  function playRowTrack(index){
     if (index < 0 || index >= tracks.length) return;
     if (index === currentIndex && audio.src) {
-      if (audio.paused) playAudio(); else pauseAudio();
+      // Same track tapped again — restart it from the beginning, Spotify-style.
+      audio.currentTime = 0;
+      if (audio.paused) {
+        playAudio();
+      } else {
+        announce('Restarted ' + tracks[index].name);
+        updateMediaSessionPosition();
+        renderPlaylist();
+      }
     } else {
       loadTrack(index, true);
     }
