@@ -475,7 +475,9 @@
   ul.playlist li:hover .li-play-icon { color: var(--brass-bright); opacity: 1; }
   ul.playlist li:hover .track-index { background: rgba(var(--brass-rgb), 0.15); }
 
+  li .li-name-wrap { flex:1; min-width:0; display:flex; flex-direction:column; justify-content:center; gap:1px; }
   li .li-name { flex:1; min-width:0; font-size: 0.88rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  li .li-artist { font-size: 0.72rem; color: var(--paper-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   li .li-format {
     flex-shrink:0;
     font-size: 0.62rem;
@@ -1496,6 +1498,10 @@
       updateNowPlayingArt(liveTrack);
       updateMediaSessionMetadata();
     }
+    // The row list is usually rendered before background parsing finishes,
+    // so refresh it once real tag data comes in — otherwise tracks other
+    // than the currently-playing one never show their parsed artist.
+    renderPlaylist();
   }
 
   async function parseTrackMetadata(track){
@@ -2567,6 +2573,16 @@
         name.textContent = t.name;
       }
 
+      const nameWrap = document.createElement('span');
+      nameWrap.className = 'li-name-wrap';
+      nameWrap.appendChild(name);
+      if (renamingIndex !== t.originalIndex && t.tagArtist) {
+        const artistLine = document.createElement('span');
+        artistLine.className = 'li-artist';
+        artistLine.textContent = t.tagArtist;
+        nameWrap.appendChild(artistLine);
+      }
+
       const formatBadge = document.createElement('span');
       formatBadge.className = 'li-format mono' + (t.unsupported ? ' unsupported' : '');
       formatBadge.textContent = t.unsupported ? '!' : (t.format || '?');
@@ -2608,7 +2624,7 @@
       moreBtn.addEventListener('click', (e) => { e.stopPropagation(); openActionSheet(t.originalIndex, moreBtn); });
 
       li.appendChild(idxWrap);
-      li.appendChild(name);
+      li.appendChild(nameWrap);
       if (newBadge) li.appendChild(newBadge);
       li.appendChild(formatBadge);
       li.appendChild(dur);
