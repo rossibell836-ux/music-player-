@@ -2244,7 +2244,7 @@
       num.textContent = (pos + 1);
       const name = document.createElement('span');
       name.className = 'np-name';
-      name.textContent = t.name;
+      name.textContent = t.tagTitle || t.name;
       const dur = document.createElement('span');
       dur.className = 'mono';
       dur.style.fontSize = '0.76rem';
@@ -2691,10 +2691,15 @@
     if (playlistFilterId !== 'all') list = list.filter(t => (t.playlistIds || []).includes(playlistFilterId));
     if (searchTerm.trim()) {
       const q = searchTerm.trim().toLowerCase();
-      list = list.filter(t => t.name.toLowerCase().includes(q));
+      list = list.filter(t =>
+        t.name.toLowerCase().includes(q) ||
+        (t.tagTitle && t.tagTitle.toLowerCase().includes(q)) ||
+        (t.tagArtist && t.tagArtist.toLowerCase().includes(q)) ||
+        (t.tagAlbum && t.tagAlbum.toLowerCase().includes(q))
+      );
     }
     if (sortMode === 'name') {
-      list.sort((a,b) => a.name.localeCompare(b.name));
+      list.sort((a,b) => (a.tagTitle || a.name).localeCompare(b.tagTitle || b.name));
     } else if (sortMode === 'duration') {
       list.sort((a,b) => (a.duration||0) - (b.duration||0));
     } else if (sortMode === 'recent') {
@@ -2729,7 +2734,7 @@
       }
       li.setAttribute('aria-current', isCurrent ? 'true' : 'false');
       li.setAttribute('aria-label',
-        (isCurrent ? (audio.paused ? 'Paused. ' : 'Now playing. ') : '') + t.name + (t.favorite ? ', favorited' : '') + (t.duration ? ', ' + formatTime(t.duration) : '') +
+        (isCurrent ? (audio.paused ? 'Paused. ' : 'Now playing. ') : '') + (t.tagTitle || t.name) + (t.tagArtist ? ', by ' + t.tagArtist : '') + (t.favorite ? ', favorited' : '') + (t.duration ? ', ' + formatTime(t.duration) : '') +
         (isCurrent ? '. Activate to restart from the beginning.' : '. Activate to play.')
       );
 
@@ -2778,7 +2783,7 @@
         name.appendChild(input);
         setTimeout(() => { input.focus(); input.select(); }, 0);
       } else {
-        name.textContent = t.name;
+        name.textContent = t.tagTitle || t.name;
       }
 
       const nameWrap = document.createElement('span');
