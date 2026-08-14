@@ -309,6 +309,8 @@
   .action-list button { width: 100%; text-align: left; padding: 14px 16px; font-size: 0.92rem; }
   .action-list button:hover { background: rgba(201,161,93,0.06); }
   .action-list button.danger { color: var(--danger); }
+  .action-list button:disabled { color: var(--paper-dim); opacity: 0.45; cursor: default; }
+  .action-list button:disabled:hover { background: none; }
 
   .pp-list { list-style: none; margin: 0 0 14px; padding: 0; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
   .pp-list li { display:flex; align-items:center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
@@ -711,6 +713,9 @@
       </div>
       <p class="action-sheet-track-name" id="action-sheet-track-name"></p>
       <ul class="action-list">
+        <li><button id="as-play-next">Play next</button></li>
+        <li><button id="as-move-up">Move up</button></li>
+        <li><button id="as-move-down">Move down</button></li>
         <li><button id="as-rename">Rename</button></li>
         <li><button id="as-playlists">Add to playlist…</button></li>
         <li><button id="as-details">Track details</button></li>
@@ -1086,6 +1091,9 @@
   const asPlaylists = document.getElementById('as-playlists');
   const asDetails = document.getElementById('as-details');
   const asDelete = document.getElementById('as-delete');
+  const asPlayNext = document.getElementById('as-play-next');
+  const asMoveUp = document.getElementById('as-move-up');
+  const asMoveDown = document.getElementById('as-move-down');
 
   const playlistPickerOverlay = document.getElementById('playlist-picker-overlay');
   const playlistPickerDialog = document.getElementById('playlist-picker-dialog');
@@ -1123,6 +1131,9 @@
   let isSeeking = false;
   let lastVolume = 0.8;
   let shuffleOn = false;
+  let shufflePlayedIds = new Set(); // ids already played this shuffle cycle — avoids repeats until everything's had a turn
+  let shuffleHistory = []; // track ids in the order actually played while shuffling, for "previous" to walk back through
+  let shuffleHistoryPos = -1;
   let repeatMode = 'off'; // off | all | one
   let searchTerm = '';
   let sortMode = 'added';
@@ -1610,19 +1621,32 @@
     }
   }
 
+  function getUnplayedShuffleCandidates(fromIndex){
+    let candidates = [];
+    for (let i = 0; i < tracks.length; i++) {
+      if (i !== fromIndex && !shufflePlayedIds.has(tracks[i].id)) candidates.push(i);
+    }
+    if (!candidates.length) {
+      // Cycle exhausted — every track has had a turn, so start a fresh
+      // cycle. Still avoid an immediate repeat of the track just heard.
+      shufflePlayedIds.clear();
+      for (let i = 0; i < tracks.length; i++) if (i !== fromIndex) candidates.push(i);
+    }
+    return candidates;
+  }
+
   function armSmartPick(){
     pendingSmartPick = null;
     if (!shuffleOn || !fadeDuration || currentIndex === -1 || tracks.length <= 1) return;
     const forIndex = currentIndex;
+    const candidates = getUnplayedShuffleCandidates(forIndex);
     const record = { forIndex, resolved: null };
     pendingSmartPick = record;
-    pickTempoMatchedIndex(forIndex).then(idx => { if (idx !== null) record.resolved = idx; }).catch(() => {});
+    pickTempoMatchedIndex(forIndex, candidates).then(idx => { if (idx !== null) record.resolved = idx; }).catch(() => {});
   }
 
-  async function pickTempoMatchedIndex(fromIndex){
-    const candidates = [];
-    for (let i = 0; i < tracks.length; i++) if (i !== fromIndex) candidates.push(i);
-    if (!candidates.length) return null;
+  async function pickTempoMatchedIndex(fromIndex, candidates){
+    if (!candidates || !candidates.length) return null;
     const fromAnalysis = await getTrackAnalysis(tracks[fromIndex]);
     if (!fromAnalysis) return null;
     const pool = candidates.slice().sort(() => Math.random() - 0.5).slice(0, Math.min(candidates.length, 6));
@@ -1645,14 +1669,17 @@
 
   function pickSmartOrRandomIndex(fromIndex){
     if (tracks.length <= 1) return fromIndex;
-    const candidates = [];
-    for (let i = 0; i < tracks.length; i++) if (i !== fromIndex) candidates.push(i);
+    const candidates = getUnplayedShuffleCandidates(fromIndex);
     const randomPick = () => candidates[Math.floor(Math.random() * candidates.length)];
     if (!fadeDuration) return randomPick();
-    if (pendingSmartPick && pendingSmartPick.forIndex === fromIndex && pendingSmartPick.resolved !== null) {
+    if (pendingSmartPick && pendingSmartPick.forIndex === fromIndex && pendingSmartPick.resolved !== null && candidates.includes(pendingSmartPick.resolved)) {
       return pendingSmartPick.resolved;
     }
     return randomPick();
+  }
+
+  function markShufflePlayed(track){
+    if (shuffleOn && track) shufflePlayedIds.add(track.id);
   }
 
   // ---------- Embedded tag metadata (ID3v2 / MP4 / FLAC) + Media Session ----------
@@ -2070,6 +2097,7 @@
     const handoffTime = audioB.currentTime;
     currentIndex = targetIndex;
     toTrack.lastPlayedAt = Date.now();
+    markShufflePlayed(toTrack);
     trackTitle.textContent = toTrack.tagTitle || toTrack.name;
     trackSub.textContent = trackSubtitle(toTrack, targetIndex);
     miniTrackTitle.textContent = toTrack.tagTitle || toTrack.name;
@@ -2119,10 +2147,26 @@
     }
   }
 
-  function resolveNextIndex(fromEnded){
+  function advanceIndex(fromEnded){
     if (!tracks.length) return null;
     if (fromEnded && repeatMode === 'one') return currentIndex;
-    if (shuffleOn) return pickSmartOrRandomIndex(currentIndex);
+    if (shuffleOn) {
+      // If we'd previously stepped backward through shuffle history, step
+      // forward through it again before picking anything new.
+      if (shuffleHistoryPos < shuffleHistory.length - 1) {
+        shuffleHistoryPos++;
+        const idx = tracks.findIndex(t => t.id === shuffleHistory[shuffleHistoryPos]);
+        if (idx !== -1) return idx;
+        shuffleHistory.splice(shuffleHistoryPos, 1);
+        shuffleHistoryPos--;
+      }
+      const picked = pickSmartOrRandomIndex(currentIndex);
+      if (picked === null || picked === undefined) return null;
+      shuffleHistory = shuffleHistory.slice(0, shuffleHistoryPos + 1);
+      shuffleHistory.push(tracks[picked].id);
+      shuffleHistoryPos = shuffleHistory.length - 1;
+      return picked;
+    }
     if (currentIndex + 1 < tracks.length) return currentIndex + 1;
     if (repeatMode === 'all') return 0;
     return null;
@@ -2133,7 +2177,7 @@
     if (audio.paused || !audio.duration || !isFinite(audio.duration)) return;
     const remaining = audio.duration - audio.currentTime;
     if (remaining > fadeDuration || remaining < 0) return;
-    const next = resolveNextIndex(true);
+    const next = advanceIndex(true);
     if (next === null) return;
     transitionToTrack(next);
   }
@@ -2489,7 +2533,9 @@
   function openActionSheet(index, triggerEl){
     actionSheetIndex = index;
     actionSheetTriggerEl = triggerEl || document.activeElement;
-    actionSheetTrackName.textContent = tracks[index].name;
+    actionSheetTrackName.textContent = tracks[index].tagTitle || tracks[index].name;
+    asMoveUp.disabled = index === 0;
+    asMoveDown.disabled = index === tracks.length - 1;
     actionSheetOverlay.hidden = false;
     const focusable = getFocusable(actionSheetDialog);
     (focusable[0] || actionSheetDialog).focus();
@@ -2515,6 +2561,21 @@
     closeActionSheet();
     renamingIndex = idx;
     renderPlaylist();
+  });
+  asPlayNext.addEventListener('click', () => {
+    const idx = actionSheetIndex;
+    closeActionSheet();
+    playNext(idx);
+  });
+  asMoveUp.addEventListener('click', () => {
+    const idx = actionSheetIndex;
+    closeActionSheet();
+    moveTrack(idx, -1);
+  });
+  asMoveDown.addEventListener('click', () => {
+    const idx = actionSheetIndex;
+    closeActionSheet();
+    moveTrack(idx, 1);
   });
   asPlaylists.addEventListener('click', () => {
     const idx = actionSheetIndex;
@@ -2813,12 +2874,6 @@
       dur.className = 'li-duration mono';
       dur.textContent = t.duration ? formatTime(t.duration) : '--:--';
 
-      const playNextBtn = document.createElement('button');
-      playNextBtn.className = 'li-playnext';
-      playNextBtn.setAttribute('aria-label', 'Play ' + t.name + ' next');
-      playNextBtn.textContent = '⇥';
-      playNextBtn.addEventListener('click', (e) => { e.stopPropagation(); playNext(t.originalIndex); });
-
       const favBtn = document.createElement('button');
       favBtn.className = 'li-fav';
       favBtn.setAttribute('aria-pressed', t.favorite ? 'true' : 'false');
@@ -2841,27 +2896,6 @@
       if (newBadge) li.appendChild(newBadge);
       li.appendChild(formatBadge);
       li.appendChild(dur);
-
-      if (sortMode === 'added' && !searchTerm.trim() && !favOnly && playlistFilterId === 'all' && !selectionMode) {
-        const upBtn = document.createElement('button');
-        upBtn.className = 'li-move';
-        upBtn.setAttribute('aria-label', 'Move ' + t.name + ' up');
-        upBtn.textContent = '↑';
-        upBtn.disabled = t.originalIndex === 0;
-        upBtn.addEventListener('click', (e) => { e.stopPropagation(); moveTrack(t.originalIndex, -1); });
-
-        const downBtn = document.createElement('button');
-        downBtn.className = 'li-move';
-        downBtn.setAttribute('aria-label', 'Move ' + t.name + ' down');
-        downBtn.textContent = '↓';
-        downBtn.disabled = t.originalIndex === tracks.length - 1;
-        downBtn.addEventListener('click', (e) => { e.stopPropagation(); moveTrack(t.originalIndex, 1); });
-
-        li.appendChild(upBtn);
-        li.appendChild(downBtn);
-      }
-
-      li.appendChild(playNextBtn);
       li.appendChild(favBtn);
       li.appendChild(moreBtn);
 
@@ -2993,6 +3027,7 @@
     currentIndex = index;
     const t = tracks[index];
     t.lastPlayedAt = Date.now();
+    markShufflePlayed(t);
     audio.src = t.url;
     trackTitle.textContent = t.tagTitle || t.name;
     trackSub.textContent = trackSubtitle(t, index);
@@ -3062,8 +3097,11 @@
       btnShuffle.setAttribute('aria-pressed', 'true');
       btnShuffle.setAttribute('aria-label', 'Shuffle: on');
     }
+    shufflePlayedIds.clear();
     const pick = list[Math.floor(Math.random() * list.length)];
     loadTrack(pick.originalIndex, true);
+    shuffleHistory = [tracks[pick.originalIndex].id];
+    shuffleHistoryPos = 0;
     armAnalysisPrefetch();
   }
 
@@ -3073,7 +3111,7 @@
 
   function goNext(fromEnded){
     if (!tracks.length) return;
-    const next = resolveNextIndex(fromEnded);
+    const next = advanceIndex(fromEnded);
     if (next === null) {
       if (fromEnded) { updatePlayButton(false); announce('Playlist finished'); }
       return;
@@ -3082,7 +3120,17 @@
   }
   function goPrev(){
     if (!tracks.length) return;
-    if (shuffleOn) { transitionToTrack(pickSmartOrRandomIndex(currentIndex)); return; }
+    if (shuffleOn) {
+      if (shuffleHistoryPos > 0) {
+        shuffleHistoryPos--;
+        const targetIndex = tracks.findIndex(t => t.id === shuffleHistory[shuffleHistoryPos]);
+        if (targetIndex !== -1) { transitionToTrack(targetIndex); return; }
+        shuffleHistoryPos++; // stale entry (track was removed) — put the pointer back
+      }
+      // No earlier shuffle history to step back into — restart the current track instead.
+      if (currentIndex !== -1) playRowTrack(currentIndex);
+      return;
+    }
     const prev = (currentIndex - 1 + tracks.length) % tracks.length;
     transitionToTrack(prev);
   }
@@ -3105,7 +3153,7 @@
     [tracks[index], tracks[target]] = [tracks[target], tracks[index]];
     if (wasCurrent) currentIndex = target;
     else if (targetWasCurrent) currentIndex = index;
-    announce(tracks[target].name + ' moved ' + (direction < 0 ? 'up' : 'down'));
+    announce((tracks[target].tagTitle || tracks[target].name) + ' moved ' + (direction < 0 ? 'up' : 'down'));
     renderPlaylist();
     if (!npOverlay.hidden) renderUpNext();
   }
@@ -3380,6 +3428,15 @@
     shuffleOn = !shuffleOn;
     btnShuffle.setAttribute('aria-pressed', shuffleOn ? 'true' : 'false');
     btnShuffle.setAttribute('aria-label', 'Shuffle: ' + (shuffleOn ? 'on' : 'off'));
+    shufflePlayedIds.clear();
+    shuffleHistory = [];
+    shuffleHistoryPos = -1;
+    if (shuffleOn && currentIndex !== -1) {
+      const t = tracks[currentIndex];
+      shufflePlayedIds.add(t.id);
+      shuffleHistory = [t.id];
+      shuffleHistoryPos = 0;
+    }
     armAnalysisPrefetch();
     announce('Shuffle ' + (shuffleOn ? 'on' : 'off'));
   });
