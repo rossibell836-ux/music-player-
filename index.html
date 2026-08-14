@@ -459,10 +459,17 @@
   .playlist-count { font-size: 0.78rem; color: var(--paper-dim); }
 
   ul.playlist { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow-card); }
-  ul.playlist li { display:flex; align-items:center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line); cursor: pointer; transition: background 0.15s ease; }
+  ul.playlist li { display:flex; align-items:center; gap: 6px; padding: 4px 6px 4px 14px; border-bottom: 1px solid var(--line); transition: background 0.15s ease; }
   ul.playlist li:last-child { border-bottom: none; }
   ul.playlist li:hover { background: rgba(var(--brass-rgb), 0.07); }
   ul.playlist li[aria-current="true"] { background: rgba(var(--brass-rgb), 0.13); box-shadow: inset 3px 0 0 var(--brass); }
+
+  .li-play-target {
+    display:flex; align-items:center; gap: 10px; flex: 1; min-width: 0;
+    padding: 8px 4px; margin: 0; text-align: left; cursor: pointer;
+    background: none; border: none; color: inherit; font: inherit;
+  }
+  .li-play-target-static { cursor: default; }
 
   .track-index { width: 24px; height: 24px; display:flex; align-items:center; justify-content:center; text-align:center; font-size: 0.76rem; color: var(--paper-dim); flex-shrink: 0; border-radius: 50%; }
   .track-index .eq-bars { display:inline-flex; align-items:flex-end; gap: 2px; height: 12px; }
@@ -2072,6 +2079,7 @@
     }
 
     ensureAudioGraph();
+    if (audioCtx.state === 'suspended') { try { await audioCtx.resume(); } catch (e) {} }
     try {
       audioB.pause();
       audioB.currentTime = 0;
@@ -2329,9 +2337,11 @@
     playlists.forEach(p => {
       const count = tracks.filter(t => (t.playlistIds || []).includes(p.id)).length;
       const li = document.createElement('li');
-      li.setAttribute('role', 'button');
-      li.setAttribute('tabindex', '0');
-      li.setAttribute('aria-label', 'Open playlist ' + p.name + ', ' + count + (count === 1 ? ' track' : ' tracks'));
+
+      const openBtn = document.createElement('button');
+      openBtn.type = 'button';
+      openBtn.className = 'li-play-target';
+      openBtn.setAttribute('aria-label', 'Open playlist ' + p.name + ', ' + count + (count === 1 ? ' track' : ' tracks'));
 
       const name = document.createElement('span');
       name.className = 'li-name';
@@ -2341,12 +2351,16 @@
       countSpan.className = 'li-duration mono';
       countSpan.textContent = count + (count === 1 ? ' track' : ' tracks');
 
+      openBtn.appendChild(name);
+      openBtn.appendChild(countSpan);
+      openBtn.addEventListener('click', () => openPlaylistFromTab(p.id));
+
       const shuffleBtn = document.createElement('button');
+      shuffleBtn.type = 'button';
       shuffleBtn.className = 'li-shuffle';
       shuffleBtn.setAttribute('aria-label', 'Shuffle play ' + p.name);
       shuffleBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h3.3c1.1 0 2.1.55 2.7 1.45l6 8.1c.6.9 1.6 1.45 2.7 1.45H21M3 18h3.3c1.1 0 2.1-.55 2.7-1.45l1-1.35M17 3l4 3-4 3M17 15l4 3-4 3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-      shuffleBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
+      shuffleBtn.addEventListener('click', () => {
         const list = tracks.map((t, i) => ({ ...t, originalIndex: i })).filter(t => (t.playlistIds || []).includes(p.id));
         if (!list.length) { announce('This playlist has no tracks yet.'); return; }
         playlistFilterId = p.id;
@@ -2356,19 +2370,15 @@
       });
 
       const delBtn = document.createElement('button');
+      delBtn.type = 'button';
       delBtn.className = 'li-delete';
       delBtn.setAttribute('aria-label', 'Delete playlist ' + p.name);
       delBtn.textContent = '✕';
-      delBtn.addEventListener('click', (e) => { e.stopPropagation(); deletePlaylist(p.id); });
+      delBtn.addEventListener('click', () => deletePlaylist(p.id));
 
-      li.appendChild(name);
-      li.appendChild(countSpan);
+      li.appendChild(openBtn);
       li.appendChild(shuffleBtn);
       li.appendChild(delBtn);
-
-      const open = () => openPlaylistFromTab(p.id);
-      li.addEventListener('click', open);
-      li.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
 
       playlistsTabList.appendChild(li);
     });
@@ -2787,17 +2797,12 @@
       const isCurrent = t.originalIndex === currentIndex;
       const isSelected = selectedIds.has(t.id);
 
-      if (!selectionMode) {
-        li.setAttribute('role', 'button');
-        li.setAttribute('tabindex', '0');
-      } else {
-        li.classList.add('selectable');
-      }
+      if (selectionMode) li.classList.add('selectable');
       li.setAttribute('aria-current', isCurrent ? 'true' : 'false');
-      li.setAttribute('aria-label',
+
+      const rowLabel =
         (isCurrent ? (audio.paused ? 'Paused. ' : 'Now playing. ') : '') + (t.tagTitle || t.name) + (t.tagArtist ? ', by ' + t.tagArtist : '') + (t.favorite ? ', favorited' : '') + (t.duration ? ', ' + formatTime(t.duration) : '') +
-        (isCurrent ? '. Activate to restart from the beginning.' : '. Activate to play.')
-      );
+        (isCurrent ? '. Activate to restart from the beginning.' : '. Activate to play.');
 
       let checkbox = null;
       if (selectionMode) {
@@ -2822,7 +2827,8 @@
       const name = document.createElement('span');
       name.className = 'li-name';
 
-      if (renamingIndex === t.originalIndex) {
+      const isRenaming = renamingIndex === t.originalIndex;
+      if (isRenaming) {
         const input = document.createElement('input');
         input.className = 'li-rename-input';
         input.type = 'text';
@@ -2850,7 +2856,7 @@
       const nameWrap = document.createElement('span');
       nameWrap.className = 'li-name-wrap';
       nameWrap.appendChild(name);
-      if (renamingIndex !== t.originalIndex && t.tagArtist) {
+      if (!isRenaming && t.tagArtist) {
         const artistLine = document.createElement('span');
         artistLine.className = 'li-artist';
         artistLine.textContent = t.tagArtist;
@@ -2875,6 +2881,7 @@
       dur.textContent = t.duration ? formatTime(t.duration) : '--:--';
 
       const favBtn = document.createElement('button');
+      favBtn.type = 'button';
       favBtn.className = 'li-fav';
       favBtn.setAttribute('aria-pressed', t.favorite ? 'true' : 'false');
       favBtn.setAttribute('aria-label', t.favorite ? 'Remove ' + t.name + ' from favorites' : 'Add ' + t.name + ' to favorites');
@@ -2885,28 +2892,43 @@
       });
 
       const moreBtn = document.createElement('button');
+      moreBtn.type = 'button';
       moreBtn.className = 'li-more';
       moreBtn.dataset.trackId = t.id;
       moreBtn.setAttribute('aria-label', 'More actions for ' + t.name);
       moreBtn.textContent = '⋯';
       moreBtn.addEventListener('click', (e) => { e.stopPropagation(); openActionSheet(t.originalIndex, moreBtn); });
 
-      li.appendChild(idxWrap);
-      li.appendChild(nameWrap);
-      if (newBadge) li.appendChild(newBadge);
-      li.appendChild(formatBadge);
-      li.appendChild(dur);
+      // The playable part of the row (index/art, title, artist, badges,
+      // duration) is its own real <button> — a sibling of the favorite and
+      // more buttons, never a parent of them. Nesting real <button>s inside
+      // a role="button" container is invalid and can make taps land on the
+      // wrong control, which is what was causing a tap on the row to
+      // sometimes fire the favorite toggle instead of playing the track.
+      if (isRenaming) {
+        const plainWrap = document.createElement('span');
+        plainWrap.className = 'li-play-target li-play-target-static';
+        plainWrap.appendChild(idxWrap);
+        plainWrap.appendChild(nameWrap);
+        li.appendChild(plainWrap);
+      } else {
+        const playBtn = document.createElement('button');
+        playBtn.type = 'button';
+        playBtn.className = 'li-play-target';
+        playBtn.setAttribute('aria-label', rowLabel);
+        playBtn.appendChild(idxWrap);
+        playBtn.appendChild(nameWrap);
+        if (newBadge) playBtn.appendChild(newBadge);
+        playBtn.appendChild(formatBadge);
+        playBtn.appendChild(dur);
+        playBtn.addEventListener('click', () => {
+          if (selectionMode) toggleSelected(t.id); else playRowTrack(t.originalIndex);
+        });
+        li.appendChild(playBtn);
+      }
+
       li.appendChild(favBtn);
       li.appendChild(moreBtn);
-
-      if (selectionMode) {
-        li.addEventListener('click', () => toggleSelected(t.id));
-      } else if (renamingIndex !== t.originalIndex) {
-        li.addEventListener('click', () => playRowTrack(t.originalIndex));
-        li.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); playRowTrack(t.originalIndex); }
-        });
-      }
 
       playlistEl.appendChild(li);
     });
@@ -3045,13 +3067,27 @@
 
   function playAudio(){
     ensureAudioGraph();
-    if (audioCtx.state === 'suspended') audioCtx.resume();
-    audio.play().then(() => {
+    // If iOS suspended the AudioContext (common after the tab sits
+    // backgrounded/idle for a while), audio.play() can succeed at the
+    // <audio> element level — currentTime advances, playbackState looks
+    // right — while actual output stays silent because the WebAudio graph
+    // downstream is still suspended. Wait for resume() to actually finish
+    // before starting playback, and retry once if it doesn't take.
+    const resumeIfNeeded = () => audioCtx.state === 'suspended' ? audioCtx.resume().catch(() => {}) : Promise.resolve();
+    resumeIfNeeded().then(() => audio.play()).then(() => {
       updatePlayButton(true);
       announce('Playing ' + tracks[currentIndex].name);
       renderPlaylist();
       armAnalysisPrefetch();
-    }).catch(() => announce('Could not play this track.'));
+    }).catch(() => {
+      // One retry: some browsers need a second resume() after a long
+      // suspension before the graph actually comes back to life.
+      resumeIfNeeded().then(() => audio.play()).then(() => {
+        updatePlayButton(true);
+        renderPlaylist();
+        armAnalysisPrefetch();
+      }).catch(() => announce('Could not play this track. Try reopening Spool.'));
+    });
   }
 
   function pauseAudio(){
@@ -3621,6 +3657,16 @@
   }
 
   setupMediaSessionHandlers();
+
+  // iOS can suspend the AudioContext while the tab sits backgrounded/idle.
+  // Try to resume it as soon as the app is visible again, so playback is
+  // already live by the time the user taps anything (including the lock
+  // screen's play button, which fires before this listener can run).
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && audioCtx && audioCtx.state === 'suspended') {
+      audioCtx.resume().catch(() => {});
+    }
+  });
 
   // ---------- Keyboard shortcuts ----------
   document.addEventListener('keydown', (e) => {
