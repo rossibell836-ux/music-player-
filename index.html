@@ -973,7 +973,7 @@
     <div class="settings-section">
       <h2>Data</h2>
       <p class="formats-note" id="autosave-status" style="margin-bottom:12px;">Checking storage…</p>
-      <p class="formats-note" style="margin-bottom:12px;">Your actual audio files can't be saved by a webpage — you'll always re-add them from Files each time. Use export/import to move your favorites and playlists to another device or browser.</p>
+      <p class="formats-note" style="margin-bottom:12px;">Your audio files themselves are saved on this device (in this browser's local storage), so your library survives a refresh or reopening the app. They never leave your device. Clearing this browser's site data will remove them — use export/import below as a portable backup of your favorites and playlists, or to move them to another device or browser.</p>
       <div class="pill-row" style="margin-bottom:14px;">
         <button class="btn-ghost" id="btn-export-data">Export favorites &amp; playlists</button>
         <label class="btn-ghost" for="import-data-input" style="cursor:pointer;">Import backup</label>
@@ -1165,8 +1165,209 @@
     storageAvailable = false;
   }
   autosaveStatus.textContent = storageAvailable
-    ? 'Spool automatically remembers your favorites, playlists, and renames in this browser — no login needed.'
+    ? 'Spool automatically remembers your library, favorites, playlists, and renames on this device — no login needed.'
     : 'This browser is blocking on-device storage (common in private/incognito mode), so nothing will be remembered automatically. Use Export below as a manual backup instead.';
+
+  // ---------- Local library storage (IndexedDB) ----------
+  // localStorage only ever held small text metadata (favorites, playlists,
+  // renames) — the actual audio files were never saved, so refreshing the
+  // page wiped the library and you had to re-pick every file. This stores
+  // the audio (and artwork) itself in IndexedDB, keyed by track id, so the
+  // whole library survives a refresh with nothing to re-select.
+  const DB_NAME = 'spool-library';
+  const DB_VERSION = 1;
+  let dbPromise = null;
+
+  function openDB(){
+    if (dbPromise) return dbPromise;
+    dbPromise = new Promise((resolve) => {
+      if (!('indexedDB' in window)) { resolve(null); return; }
+      let req;
+      try { req = indexedDB.open(DB_NAME, DB_VERSION); } catch (e) { resolve(null); return; }
+      req.onupgradeneeded = (e) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains('tracks')) db.createObjectStore('tracks', { keyPath: 'id' });
+        if (!db.objectStoreNames.contains('blobs')) db.createObjectStore('blobs', { keyPath: 'id' });
+        if (!db.objectStoreNames.contains('playlists')) db.createObjectStore('playlists', { keyPath: 'id' });
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => resolve(null);
+    });
+    return dbPromise;
+  }
+
+  function dbPut(storeName, value){
+    return openDB().then(db => new Promise((resolve) => {
+      if (!db) { resolve(false); return; }
+      try {
+        const tx = db.transaction(storeName, 'readwrite');
+        tx.objectStore(storeName).put(value);
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => resolve(false);
+      } catch (e) { resolve(false); }
+    }));
+  }
+
+  function dbDelete(storeName, key){
+    return openDB().then(db => new Promise((resolve) => {
+      if (!db) { resolve(false); return; }
+      try {
+        const tx = db.transaction(storeName, 'readwrite');
+        tx.objectStore(storeName).delete(key);
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => resolve(false);
+      } catch (e) { resolve(false); }
+    }));
+  }
+
+  function dbGetAll(storeName){
+    return openDB().then(db => new Promise((resolve) => {
+      if (!db) { resolve([]); return; }
+      try {
+        const tx = db.transaction(storeName, 'readonly');
+        const req = tx.objectStore(storeName).getAll();
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = () => resolve([]);
+      } catch (e) { resolve([]); }
+    }));
+  }
+
+  function dbClearStore(storeName){
+    return openDB().then(db => new Promise((resolve) => {
+      if (!db) { resolve(false); return; }
+      try {
+        const tx = db.transaction(storeName, 'readwrite');
+        tx.objectStore(storeName).clear();
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => resolve(false);
+      } catch (e) { resolve(false); }
+    }));
+  }
+
+  function dbClearAndPutAll(storeName, items){
+    return openDB().then(db => new Promise((resolve) => {
+      if (!db) { resolve(false); return; }
+      try {
+        const tx = db.transaction(storeName, 'readwrite');
+        const store = tx.objectStore(storeName);
+        store.clear();
+        items.forEach(item => store.put(item));
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => resolve(false);
+      } catch (e) { resolve(false); }
+    }));
+  }
+
+  function dbUpdate(storeName, id, patchFn){
+    return openDB().then(db => new Promise((resolve) => {
+      if (!db) { resolve(false); return; }
+      try {
+        const tx = db.transaction(storeName, 'readwrite');
+        const store = tx.objectStore(storeName);
+        const getReq = store.get(id);
+        getReq.onsuccess = () => {
+          const existing = getReq.result || { id };
+          store.put(patchFn(existing));
+        };
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => resolve(false);
+      } catch (e) { resolve(false); }
+    }));
+  }
+
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
+
+  function persistTrackBlob(id, audioBlob){
+    dbPut('blobs', { id, audioBlob, artworkBlob: null, artworkMime: null });
+  }
+
+  function persistTrackArtwork(id, artworkBlob, artworkMime){
+    dbUpdate('blobs', id, (existing) => Object.assign({}, existing, { id, artworkBlob, artworkMime }));
+  }
+
+  function deleteTrackBlob(id){
+    dbDelete('blobs', id);
+  }
+
+  function clearLibraryDB(){
+    dbClearStore('tracks');
+    dbClearStore('blobs');
+    dbClearStore('playlists');
+  }
+
+  // Rewrites the (blob-free) metadata stores from the current in-memory
+  // state. Clear-then-rewrite keeps this simple and also means a deleted
+  // track's metadata naturally disappears without a separate delete call.
+  function syncLibraryToDB(){
+    const trackRecords = tracks.map(t => ({
+      id: t.id,
+      name: t.name,
+      originalFilename: t.originalFilename,
+      format: t.format,
+      favorite: !!t.favorite,
+      addedAt: t.addedAt,
+      lastPlayedAt: t.lastPlayedAt || null,
+      duration: t.duration || null,
+      tagTitle: t.tagTitle || null,
+      tagArtist: t.tagArtist || null,
+      tagAlbum: t.tagAlbum || null,
+      playlistIds: t.playlistIds || [],
+    }));
+    const playlistRecords = playlists.map(p => ({ id: p.id, name: p.name }));
+    dbClearAndPutAll('tracks', trackRecords);
+    dbClearAndPutAll('playlists', playlistRecords);
+  }
+
+  async function restoreLibraryFromDB(){
+    const [trackRecords, blobRecords, playlistRecords] = await Promise.all([
+      dbGetAll('tracks'), dbGetAll('blobs'), dbGetAll('playlists')
+    ]);
+    if (!trackRecords.length) return false;
+    const blobById = new Map(blobRecords.map(b => [b.id, b]));
+    playlistRecords.forEach(p => { if (!playlists.some(x => x.id === p.id)) playlists.push({ id: p.id, name: p.name }); });
+    trackRecords.sort((a, b) => (a.addedAt || 0) - (b.addedAt || 0));
+    const restored = [];
+    let maxId = nextId;
+    trackRecords.forEach(rec => {
+      const blobRec = blobById.get(rec.id);
+      if (!blobRec || !blobRec.audioBlob) return; // no audio saved for this entry — skip rather than show a dead row
+      let url;
+      try { url = URL.createObjectURL(blobRec.audioBlob); } catch (e) { return; }
+      let artworkUrl;
+      if (blobRec.artworkBlob) { try { artworkUrl = URL.createObjectURL(blobRec.artworkBlob); } catch (e) {} }
+      const t = {
+        id: rec.id,
+        name: rec.name,
+        originalFilename: rec.originalFilename,
+        format: rec.format,
+        url,
+        duration: rec.duration || null,
+        favorite: !!rec.favorite,
+        unsupported: false,
+        addedAt: rec.addedAt,
+        lastPlayedAt: rec.lastPlayedAt || null,
+        size: blobRec.audioBlob.size || 0,
+        playlistIds: rec.playlistIds || [],
+      };
+      if (rec.tagTitle) t.tagTitle = rec.tagTitle;
+      if (rec.tagArtist) t.tagArtist = rec.tagArtist;
+      if (rec.tagAlbum) t.tagAlbum = rec.tagAlbum;
+      if (artworkUrl) t.artworkUrl = artworkUrl;
+      restored.push(t);
+      if (typeof rec.id === 'number' && rec.id >= maxId) maxId = rec.id + 1;
+    });
+    if (!restored.length) return false;
+    if (tracks.length) return false; // user already added something manually while this was loading — don't clobber it
+    let maxPlId = nextPlaylistId;
+    playlists.forEach(p => {
+      const n = parseInt(String(p.id).replace('pl', ''), 10);
+      if (!isNaN(n) && n >= maxPlId) maxPlId = n + 1;
+    });
+    tracks = restored;
+    nextId = maxId;
+    nextPlaylistId = maxPlId;
+    return true;
+  }
 
   function persistNow(){
     if (!storageAvailable) return;
@@ -1185,6 +1386,7 @@
       window.localStorage.setItem(STORAGE_KEY_META, JSON.stringify(metaMap));
       window.localStorage.setItem(STORAGE_KEY_PLAYLISTS, JSON.stringify(playlists.map(p => p.name)));
     } catch (e) { /* storage full or unavailable; fail silently */ }
+    syncLibraryToDB();
   }
 
   function loadPersistedData(){
@@ -1207,6 +1409,7 @@
       window.localStorage.removeItem(STORAGE_KEY_META);
       window.localStorage.removeItem(STORAGE_KEY_PLAYLISTS);
     } catch (e) { /* ignore */ }
+    clearLibraryDB();
   }
 
   function announce(msg){ status.textContent = msg; }
@@ -1490,10 +1693,13 @@
     if (!result) return;
     const liveTrack = tracks.find(t => t.id === track.id);
     if (!liveTrack) return;
-    if (result.title) liveTrack.tagTitle = result.title;
-    if (result.artist) liveTrack.tagArtist = result.artist;
-    if (result.album) liveTrack.tagAlbum = result.album;
+    let tagsChanged = false;
+    if (result.title) { liveTrack.tagTitle = result.title; tagsChanged = true; }
+    if (result.artist) { liveTrack.tagArtist = result.artist; tagsChanged = true; }
+    if (result.album) { liveTrack.tagAlbum = result.album; tagsChanged = true; }
     if (result.artworkUrl) liveTrack.artworkUrl = result.artworkUrl;
+    if (result.artworkBlob) persistTrackArtwork(liveTrack.id, result.artworkBlob, result.artworkMime || 'image/jpeg');
+    if (tagsChanged) syncLibraryToDB();
     if (tracks.indexOf(liveTrack) === currentIndex) {
       updateNowPlayingArt(liveTrack);
       updateMediaSessionMetadata();
@@ -1529,6 +1735,7 @@
       try {
         const blob = new Blob([result.artworkBytes], { type: result.artworkMime || 'image/jpeg' });
         result.artworkUrl = URL.createObjectURL(blob);
+        result.artworkBlob = blob;
       } catch (e) {}
     }
     return result;
@@ -2242,7 +2449,7 @@
     if (batchDelete.dataset.confirming === 'true') {
       const idsToRemove = new Set(selectedIds);
       const removingCurrent = currentIndex !== -1 && idsToRemove.has(tracks[currentIndex].id);
-      tracks.forEach(t => { if (idsToRemove.has(t.id)) { URL.revokeObjectURL(t.url); if (t.artworkUrl) URL.revokeObjectURL(t.artworkUrl); } });
+      tracks.forEach(t => { if (idsToRemove.has(t.id)) { URL.revokeObjectURL(t.url); if (t.artworkUrl) URL.revokeObjectURL(t.artworkUrl); deleteTrackBlob(t.id); } });
       tracks = tracks.filter(t => !idsToRemove.has(t.id));
       selectedIds.clear();
       if (removingCurrent) {
@@ -2257,6 +2464,7 @@
         updatePlayButton(false);
       }
       if (tracks.length === 0) setPlayerActive(false);
+      persistNow();
       announce('Deleted selected tracks');
       batchDelete.textContent = 'Delete';
       batchDelete.dataset.confirming = 'false';
@@ -2696,7 +2904,13 @@
 
   function finalizePendingDelete(){
     if (pendingDeleteTimeoutId) { clearTimeout(pendingDeleteTimeoutId); pendingDeleteTimeoutId = null; }
-    if (pendingDelete) { URL.revokeObjectURL(pendingDelete.track.url); if (pendingDelete.track.artworkUrl) URL.revokeObjectURL(pendingDelete.track.artworkUrl); pendingDelete = null; }
+    if (pendingDelete) {
+      URL.revokeObjectURL(pendingDelete.track.url);
+      if (pendingDelete.track.artworkUrl) URL.revokeObjectURL(pendingDelete.track.artworkUrl);
+      deleteTrackBlob(pendingDelete.track.id);
+      persistNow();
+      pendingDelete = null;
+    }
     toast.hidden = true;
   }
 
@@ -2783,7 +2997,7 @@
     btnFavCurrent.setAttribute('aria-label', t.favorite ? 'Remove current track from favorites' : 'Add current track to favorites');
     updateNowPlayingArt(t);
     updateMediaSessionMetadata();
-    getTrackMetadata(t);
+    if (!t.tagTitle && !t.tagArtist && !t.tagAlbum) getTrackMetadata(t);
     renderPlaylist();
     if (!npOverlay.hidden) renderUpNext();
     if (autoplay) playAudio(); else updatePlayButton(false);
@@ -2929,6 +3143,8 @@
     });
     tracks = tracks.concat(newTracks);
     newTracks.forEach(t => getTrackMetadata(t));
+    files.forEach((f, i) => persistTrackBlob(newTracks[i].id, f));
+    persistNow();
     setPlayerActive(true);
     renderPlaylist();
     if (wasEmpty) {
@@ -3037,7 +3253,7 @@
   btnClearLibrary.addEventListener('click', () => {
     if (btnClearLibrary.dataset.confirming === 'true') {
       finalizePendingDelete();
-      tracks.forEach(t => { URL.revokeObjectURL(t.url); if (t.artworkUrl) URL.revokeObjectURL(t.artworkUrl); });
+      tracks.forEach(t => { URL.revokeObjectURL(t.url); if (t.artworkUrl) URL.revokeObjectURL(t.artworkUrl); deleteTrackBlob(t.id); });
       tracks = [];
       currentIndex = -1;
       audio.pause();
@@ -3048,6 +3264,7 @@
       analysisCache.clear();
       metadataCache.clear();
       updateNowPlayingArt(null);
+      persistNow();
       setPlayerActive(false);
       selectedIds.clear();
       trackTitle.textContent = 'No track selected';
@@ -3401,6 +3618,20 @@
   renderPlaylistFilterOptions();
   renderPlaylistsTab();
   renderPlaylist();
+
+  // Restore the actual library (audio + artwork) from IndexedDB, if any was
+  // saved from a previous visit. Async, so it finishes a beat after first
+  // paint — the empty-state briefly shows, then flips to the real library.
+  restoreLibraryFromDB().then(restored => {
+    if (!restored) return;
+    setPlayerActive(true);
+    renderPlaylistFilterOptions();
+    renderPlaylistsTab();
+    renderPlaylist();
+    const lastPlayedIdx = tracks.reduce((best, t, i) => (t.lastPlayedAt && (best === -1 || t.lastPlayedAt > tracks[best].lastPlayedAt)) ? i : best, -1);
+    loadTrack(lastPlayedIdx !== -1 ? lastPlayedIdx : 0, false);
+    announce('Restored your library — ' + tracks.length + (tracks.length === 1 ? ' track' : ' tracks') + ' from last time.');
+  });
 })();
 </script>
 </body>
