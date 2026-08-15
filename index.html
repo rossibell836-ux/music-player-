@@ -500,18 +500,17 @@
   }
   li .li-format.unsupported { color: var(--danger); border-color: var(--danger); }
   li .li-duration { font-size: 0.76rem; color: var(--paper-dim); flex-shrink:0; }
-  li .li-fav, li .li-delete, li .li-playnext, li .li-move, li .li-rename, li .li-more {
+  li .li-fav-indicator { flex-shrink: 0; font-size: 0.9rem; color: var(--brass); }
+  li .li-delete, li .li-more {
     flex-shrink: 0;
     padding: 6px;
     font-size: 1rem;
     color: var(--paper-dim);
     border-radius: 50%;
   }
-  li .li-playnext, li .li-move, li .li-rename, li .li-more { font-size: 0.85rem; }
-  li .li-fav[aria-pressed="true"] { color: var(--brass); }
+  li .li-more { font-size: 0.85rem; }
   li .li-delete:hover { color: var(--danger); background: rgba(201,122,107,0.12); }
-  li .li-playnext:hover, li .li-move:hover, li .li-rename:hover, li .li-more:hover { color: var(--brass-bright); }
-  li .li-move:disabled { opacity: 0.25; cursor: default; }
+  li .li-more:hover { color: var(--brass-bright); }
   li.selectable { cursor: default; }
 
   .playlist-stats { font-size: 0.76rem; color: var(--paper-dim); }
@@ -724,6 +723,7 @@
       </div>
       <p class="action-sheet-track-name" id="action-sheet-track-name"></p>
       <ul class="action-list">
+        <li><button id="as-favorite">Add to favorites</button></li>
         <li><button id="as-play-next">Play next</button></li>
         <li><button id="as-add-queue">Add to queue</button></li>
         <li><button id="as-move-up">Move up</button></li>
@@ -1118,6 +1118,7 @@
   const asDetails = document.getElementById('as-details');
   const asDelete = document.getElementById('as-delete');
   const asPlayNext = document.getElementById('as-play-next');
+  const asFavorite = document.getElementById('as-favorite');
   const asAddQueue = document.getElementById('as-add-queue');
   const asMoveUp = document.getElementById('as-move-up');
   const asMoveDown = document.getElementById('as-move-down');
@@ -1555,14 +1556,20 @@
     // that's never played before outside a real user gesture, which made
     // crossfades silently fail and fall back to an instant cut. Playing and
     // immediately pausing it here, inside an actual click-triggered play,
-    // "unlocks" it for that later programmatic call.
-    if (audioBPrimed || !audioCtx) return;
+    // "unlocks" it for that later programmatic call. It needs a real,
+    // loadable src to prime against — priming against an empty element
+    // silently fails and never actually unlocks anything.
+    if (audioBPrimed || !audioCtx || !audio.src) return;
     audioBPrimed = true;
     try {
+      audioB.src = audio.src;
       chainB.gain.gain.setValueAtTime(0.0001, audioCtx.currentTime);
       const p = audioB.play();
-      if (p && p.then) p.then(() => audioB.pause()).catch(() => { audioBPrimed = false; });
-      else audioB.pause();
+      if (p && p.then) {
+        p.then(() => { audioB.pause(); audioB.currentTime = 0; }).catch(() => { audioBPrimed = false; });
+      } else {
+        audioB.pause();
+      }
     } catch (e) { audioBPrimed = false; }
   }
 
@@ -2632,6 +2639,7 @@
     actionSheetIndex = index;
     actionSheetTriggerEl = triggerEl || document.activeElement;
     actionSheetTrackName.textContent = tracks[index].tagTitle || tracks[index].name;
+    asFavorite.textContent = tracks[index].favorite ? 'Remove from favorites' : 'Add to favorites';
     asMoveUp.disabled = index === 0;
     asMoveDown.disabled = index === tracks.length - 1;
     asPlayNext.disabled = index === currentIndex;
@@ -2661,6 +2669,11 @@
     closeActionSheet();
     renamingIndex = idx;
     renderPlaylist();
+  });
+  asFavorite.addEventListener('click', () => {
+    const idx = actionSheetIndex;
+    closeActionSheet();
+    toggleFavorite(idx);
   });
   asPlayNext.addEventListener('click', () => {
     const idx = actionSheetIndex;
@@ -3066,16 +3079,10 @@
       dur.className = 'li-duration mono';
       dur.textContent = t.duration ? formatTime(t.duration) : '--:--';
 
-      const favBtn = document.createElement('button');
-      favBtn.type = 'button';
-      favBtn.className = 'li-fav';
-      favBtn.setAttribute('aria-pressed', t.favorite ? 'true' : 'false');
-      favBtn.setAttribute('aria-label', t.favorite ? 'Remove ' + t.name + ' from favorites' : 'Add ' + t.name + ' to favorites');
-      favBtn.textContent = t.favorite ? '★' : '☆';
-      favBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        toggleFavorite(t.originalIndex);
-      });
+      const favIndicator = document.createElement('span');
+      favIndicator.className = 'li-fav-indicator';
+      favIndicator.setAttribute('aria-hidden', 'true');
+      favIndicator.textContent = t.favorite ? '★' : '☆';
 
       const moreBtn = document.createElement('button');
       moreBtn.type = 'button';
@@ -3085,12 +3092,12 @@
       moreBtn.textContent = '⋯';
       moreBtn.addEventListener('click', (e) => { e.stopPropagation(); openActionSheet(t.originalIndex, moreBtn); });
 
-      // The playable part of the row (index/art, title, artist, badges,
-      // duration) is its own real <button> — a sibling of the favorite and
-      // more buttons, never a parent of them. Nesting real <button>s inside
-      // a role="button" container is invalid and can make taps land on the
-      // wrong control, which is what was causing a tap on the row to
-      // sometimes fire the favorite toggle instead of playing the track.
+      // Each row exposes exactly two interactive controls — the play target
+      // and "More actions" — instead of a separate favorite button in
+      // between. That third stop meant every VoiceOver swipe through the
+      // list read "track name" → "Remove/Add … favorites" → "More options"
+      // for every row; favoriting now lives inside the More actions sheet,
+      // with just a small non-interactive star left as a visual indicator.
       if (isRenaming) {
         const plainWrap = document.createElement('span');
         plainWrap.className = 'li-play-target li-play-target-static';
@@ -3105,6 +3112,7 @@
         playBtn.appendChild(idxWrap);
         playBtn.appendChild(nameWrap);
         if (newBadge) playBtn.appendChild(newBadge);
+        if (t.favorite) playBtn.appendChild(favIndicator);
         playBtn.appendChild(formatBadge);
         playBtn.appendChild(dur);
         playBtn.addEventListener('click', () => {
@@ -3113,7 +3121,6 @@
         li.appendChild(playBtn);
       }
 
-      li.appendChild(favBtn);
       li.appendChild(moreBtn);
 
       playlistEl.appendChild(li);
@@ -3273,7 +3280,6 @@
       return;
     }
     ensureAudioGraph();
-    primeAudioB();
     // If iOS suspended the AudioContext (common after the tab sits
     // backgrounded/idle for a while), audio.play() can succeed at the
     // <audio> element level — currentTime advances, playbackState looks
@@ -3281,7 +3287,7 @@
     // downstream is still suspended. Wait for resume() to actually finish
     // before starting playback, and retry once if it doesn't take.
     const resumeIfNeeded = () => audioCtx.state === 'suspended' ? audioCtx.resume().catch(() => {}) : Promise.resolve();
-    resumeIfNeeded().then(() => audio.play()).then(() => {
+    resumeIfNeeded().then(() => { primeAudioB(); return audio.play(); }).then(() => {
       updatePlayButton(true);
       announce('Playing ' + tracks[currentIndex].name);
       renderPlaylist();
