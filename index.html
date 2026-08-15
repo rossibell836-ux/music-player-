@@ -1323,7 +1323,7 @@
   try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
 
   function persistTrackBlob(id, audioBlob){
-    dbPut('blobs', { id, audioBlob, artworkBlob: null, artworkMime: null });
+    return dbPut('blobs', { id, audioBlob, artworkBlob: null, artworkMime: null });
   }
 
   function persistTrackArtwork(id, artworkBlob, artworkMime){
@@ -1497,7 +1497,22 @@
   const audioB = new Audio();
   audioB.preload = 'auto';
 
+  // A third, deliberately plain <audio> element that is NEVER connected to
+  // the Web Audio graph. iOS suspends Web-Audio-routed playback in the
+  // background (a WebKit limitation, not something we can configure our
+  // way around once an element is routed through createMediaElementSource —
+  // that routing is permanent for the element's lifetime), but it keeps
+  // plain, unconnected <audio> elements playing through screen lock/backgrounding.
+  // When the page is hidden, we hand playback off to this element at the
+  // same position (losing EQ/spatial/crossfade for that stretch, which is
+  // the right trade-off vs. going silent); when the page is visible again,
+  // we hand it back to the full Web Audio pipeline.
+  const bgAudio = new Audio();
+  bgAudio.preload = 'auto';
+  let isBackgroundHandoff = false;
+
   let audioCtx, chainA, chainB, spatialPanner, spatialLFO, spatialDepth, masterGain;
+  let audioBPrimed = false;
   let currentQualityName = 'standard';
   let currentSpatialMode = 'normal';
 
@@ -1532,6 +1547,23 @@
 
     applyQuality(currentQualityName);
     applySpatialMode(currentSpatialMode);
+  }
+
+  function primeAudioB(){
+    // The crossfade engine calls audioB.play() from a background timer, not
+    // a direct tap — some browsers are picky about starting an element
+    // that's never played before outside a real user gesture, which made
+    // crossfades silently fail and fall back to an instant cut. Playing and
+    // immediately pausing it here, inside an actual click-triggered play,
+    // "unlocks" it for that later programmatic call.
+    if (audioBPrimed || !audioCtx) return;
+    audioBPrimed = true;
+    try {
+      chainB.gain.gain.setValueAtTime(0.0001, audioCtx.currentTime);
+      const p = audioB.play();
+      if (p && p.then) p.then(() => audioB.pause()).catch(() => { audioBPrimed = false; });
+      else audioB.pause();
+    } catch (e) { audioBPrimed = false; }
   }
 
   function setChainGain(chain, target, rampSeconds){
@@ -2052,12 +2084,13 @@
 
   function updateMediaSessionPosition(){
     if (!('mediaSession' in navigator) || !navigator.mediaSession.setPositionState) return;
-    if (!audio.duration || !isFinite(audio.duration)) return;
+    const el = isBackgroundHandoff ? bgAudio : audio;
+    if (!el.duration || !isFinite(el.duration)) return;
     try {
       navigator.mediaSession.setPositionState({
-        duration: audio.duration,
-        playbackRate: audio.playbackRate || 1,
-        position: Math.min(Math.max(0, audio.currentTime), audio.duration),
+        duration: el.duration,
+        playbackRate: el.playbackRate || 1,
+        position: Math.min(Math.max(0, el.currentTime), el.duration),
       });
     } catch (e) {}
   }
@@ -2067,13 +2100,24 @@
     const safeSetHandler = (action, handler) => { try { navigator.mediaSession.setActionHandler(action, handler); } catch (e) {} };
     safeSetHandler('play', () => playAudio());
     safeSetHandler('pause', () => pauseAudio());
-    safeSetHandler('previoustrack', () => goPrev());
-    safeSetHandler('nexttrack', () => goNext(false));
+    safeSetHandler('previoustrack', () => {
+      const wasBg = isBackgroundHandoff;
+      if (wasBg) { bgAudio.pause(); isBackgroundHandoff = false; }
+      goPrev();
+      if (wasBg) setTimeout(handoffToBackground, 60);
+    });
+    safeSetHandler('nexttrack', () => {
+      const wasBg = isBackgroundHandoff;
+      if (wasBg) { bgAudio.pause(); isBackgroundHandoff = false; }
+      goNext(false);
+      if (wasBg) setTimeout(handoffToBackground, 60);
+    });
     safeSetHandler('stop', () => pauseAudio());
     safeSetHandler('seekto', (details) => {
-      if (!audio.duration) return;
-      if (details.fastSeek && 'fastSeek' in audio) { audio.fastSeek(details.seekTime); return; }
-      audio.currentTime = Math.min(details.seekTime, audio.duration);
+      const el = isBackgroundHandoff ? bgAudio : audio;
+      if (!el.duration) return;
+      if (details.fastSeek && 'fastSeek' in el) { el.fastSeek(details.seekTime); return; }
+      el.currentTime = Math.min(details.seekTime, el.duration);
       updateMediaSessionPosition();
     });
     // Deliberately NOT registering 'seekbackward'/'seekforward': on iOS,
@@ -2550,6 +2594,8 @@
       if (removingCurrent) {
         audio.pause();
         audioB.pause();
+        bgAudio.pause();
+        isBackgroundHandoff = false;
         isCrossfading = false;
         currentIndex = -1;
         trackTitle.textContent = 'No track selected';
@@ -3125,6 +3171,8 @@
     if (wasCurrent) {
       audio.pause();
       audioB.pause();
+      bgAudio.pause();
+      isBackgroundHandoff = false;
       isCrossfading = false;
       currentIndex = -1;
       trackTitle.textContent = 'No track selected';
@@ -3218,7 +3266,14 @@
   }
 
   function playAudio(){
+    if (isBackgroundHandoff) {
+      // Playback is currently running through the background-safe element;
+      // keep operating on that one rather than waking the Web Audio graph.
+      bgAudio.play().then(() => { updatePlayButton(true); persistNow(); }).catch(() => announce('Could not play this track.'));
+      return;
+    }
     ensureAudioGraph();
+    primeAudioB();
     // If iOS suspended the AudioContext (common after the tab sits
     // backgrounded/idle for a while), audio.play() can succeed at the
     // <audio> element level — currentTime advances, playbackState looks
@@ -3245,11 +3300,83 @@
   }
 
   function pauseAudio(){
+    if (isBackgroundHandoff) {
+      bgAudio.pause();
+      updatePlayButton(false);
+      announce('Paused');
+      renderPlaylist();
+      return;
+    }
     audio.pause();
     updatePlayButton(false);
     announce('Paused');
     renderPlaylist();
   }
+
+  function handoffToBackground(){
+    if (!audioCtx || audio.paused || isBackgroundHandoff || isCrossfading) return;
+    bgAudio.src = audio.src;
+    bgAudio.currentTime = audio.currentTime;
+    bgAudio.volume = audio.volume;
+    bgAudio.playbackRate = audio.playbackRate;
+    const p = bgAudio.play();
+    (p && p.then ? p : Promise.resolve()).then(() => {
+      audio.pause();
+      isBackgroundHandoff = true;
+    }).catch(() => {});
+  }
+
+  function handoffToForeground(){
+    if (!isBackgroundHandoff) return;
+    ensureAudioGraph();
+    const resumeP = audioCtx.state === 'suspended' ? audioCtx.resume().catch(() => {}) : Promise.resolve();
+    const currentTrack = tracks[currentIndex];
+    // bgAudio may have auto-advanced to a different track while backgrounded
+    // (see its 'ended' handler below) — if so, `audio` is still pointed at
+    // whatever was playing before the handoff and needs to be reloaded.
+    const needsReload = currentTrack && audio.src !== currentTrack.url;
+    resumeP.then(() => {
+      if (!needsReload) return Promise.resolve();
+      return new Promise((resolve) => {
+        const onReady = () => { audio.removeEventListener('loadedmetadata', onReady); resolve(); };
+        audio.addEventListener('loadedmetadata', onReady);
+        audio.src = currentTrack.url;
+        audio.load();
+      });
+    }).then(() => {
+      audio.currentTime = bgAudio.currentTime;
+      audio.volume = bgAudio.volume;
+      return audio.play();
+    }).then(() => {
+      bgAudio.pause();
+      isBackgroundHandoff = false;
+      updatePlayButton(true);
+      updateMediaSessionPosition();
+      if (needsReload) renderPlaylist();
+    }).catch(() => {});
+  }
+
+  // Best-effort auto-advance while playing through the background-safe
+  // element: iOS heavily throttles JS execution once the page is hidden, so
+  // this may not always get a chance to run before the OS fully suspends
+  // the tab — if it doesn't, playback will just stop at the end of the
+  // current track until the app is reopened. When it does run, keep going.
+  bgAudio.addEventListener('ended', () => {
+    if (!isBackgroundHandoff) return;
+    const next = advanceIndex(true);
+    if (next === null || !tracks[next]) { isBackgroundHandoff = false; updatePlayButton(false); return; }
+    currentIndex = next;
+    const t = tracks[currentIndex];
+    t.lastPlayedAt = Date.now();
+    t.playCount = (t.playCount || 0) + 1;
+    markShufflePlayed(t);
+    bgAudio.src = t.url;
+    bgAudio.currentTime = 0;
+    bgAudio.play().catch(() => { isBackgroundHandoff = false; });
+    updateMediaSessionMetadata();
+    getTrackMetadata(t);
+  });
+  bgAudio.addEventListener('timeupdate', () => { if (isBackgroundHandoff) updateMediaSessionPosition(); });
 
   function updatePlayButton(playing){
     btnPlay.setAttribute('aria-pressed', playing ? 'true' : 'false');
@@ -3368,8 +3495,14 @@
 
   // ---------- File input ----------
   function handleFiles(fileList){
-    const files = Array.from(fileList || []).filter(f => !f.type || f.type.startsWith('audio') || /\.(mp3|flac|m4a|aac|wav|ogg|opus|webm)$/i.test(f.name));
-    if (!files.length) return;
+    const allFiles = Array.from(fileList || []);
+    const files = allFiles.filter(f => !f.type || f.type.startsWith('audio') || /\.(mp3|flac|m4a|aac|wav|ogg|opus|webm)$/i.test(f.name));
+    if (!files.length) {
+      if (allFiles.length) {
+        announce('No supported audio files found in what you selected (checked ' + allFiles.length + (allFiles.length === 1 ? ' item' : ' items') + '). Supported formats: MP3, FLAC, M4A/AAC, WAV, OGG.');
+      }
+      return;
+    }
     const wasEmpty = tracks.length === 0;
     let matchedCount = 0;
     const newTracks = files.map(f => {
@@ -3404,7 +3537,12 @@
     });
     tracks = tracks.concat(newTracks);
     newTracks.forEach(t => getTrackMetadata(t));
-    files.forEach((f, i) => persistTrackBlob(newTracks[i].id, f));
+    Promise.all(files.map((f, i) => persistTrackBlob(newTracks[i].id, f))).then(results => {
+      const failed = results.filter(ok => !ok).length;
+      if (failed > 0) {
+        announce('Heads up: ' + failed + ' of ' + files.length + ' new track' + (files.length === 1 ? '' : 's') + " couldn't be saved to this device's storage — it may be full. Those will disappear on refresh unless you free up space.");
+      }
+    });
     persistNow();
     setPlayerActive(true);
     renderPlaylist();
@@ -3526,6 +3664,9 @@
       audio.removeAttribute('src');
       audioB.pause();
       audioB.removeAttribute('src');
+      bgAudio.pause();
+      bgAudio.removeAttribute('src');
+      isBackgroundHandoff = false;
       isCrossfading = false;
       analysisCache.clear();
       metadataCache.clear();
@@ -3564,6 +3705,8 @@
       clearPersistedData();
       audio.pause(); audio.removeAttribute('src'); audio.playbackRate = 1;
       audioB.pause(); audioB.removeAttribute('src'); audioB.playbackRate = 1;
+      bgAudio.pause(); bgAudio.removeAttribute('src');
+      isBackgroundHandoff = false;
       isCrossfading = false;
       pendingSmartPick = null;
       analysisCache.clear();
@@ -3835,15 +3978,23 @@
 
   setupMediaSessionHandlers();
 
-  // iOS can suspend the AudioContext while the tab sits backgrounded/idle.
-  // Try to resume it as soon as the app is visible again, so playback is
-  // already live by the time the user taps anything (including the lock
-  // screen's play button, which fires before this listener can run).
+  // iOS suspends the Web-Audio-routed playback path as soon as the page is
+  // backgrounded/screen locks (a platform limitation, not a bug we can
+  // configure around — see the note by bgAudio's declaration). Hand
+  // playback off to the plain background-safe element right as that
+  // happens, and hand it back — with full EQ/crossfade/spatial audio
+  // restored — the moment the app is foregrounded again.
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && audioCtx && audioCtx.state === 'suspended') {
-      audioCtx.resume().catch(() => {});
+    if (document.visibilityState === 'hidden') {
+      handoffToBackground();
+    } else if (document.visibilityState === 'visible') {
+      handoffToForeground();
+      if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
     }
   });
+  // iOS fires pagehide/freeze in some backgrounding paths where
+  // visibilitychange can arrive too late to catch the handoff in time.
+  window.addEventListener('pagehide', () => { handoffToBackground(); });
 
   // ---------- Keyboard shortcuts ----------
   document.addEventListener('keydown', (e) => {
