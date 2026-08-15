@@ -329,6 +329,7 @@
 
   .details-list { display:flex; flex-direction:column; }
   .details-row { display:flex; justify-content: space-between; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--line); font-size: 0.86rem; }
+  .queue-now-playing { font-size: 0.8rem; color: var(--paper-dim); margin: 0 0 14px; }
   .details-row:last-child { border-bottom: none; }
   .details-row .dt-label { color: var(--paper-dim); flex-shrink: 0; }
   .details-row .dt-value { font-weight: 500; text-align: right; word-break: break-word; }
@@ -639,6 +640,9 @@
       <button class="mini-ctrl" id="btn-mini-next" aria-label="Next track">
         <svg viewBox="0 0 24 24"><path d="M16 6h2v12h-2zm-9.5 6L15 18V6z"/></svg>
       </button>
+      <button class="mini-ctrl" id="btn-open-queue" aria-label="Queue">
+        <svg viewBox="0 0 24 24"><path d="M4 6h12M4 12h12M4 18h7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M17 14.5l5 3-5 3v-6z" fill="currentColor"/></svg>
+      </button>
     </div>
   </div>
 
@@ -721,6 +725,7 @@
       <p class="action-sheet-track-name" id="action-sheet-track-name"></p>
       <ul class="action-list">
         <li><button id="as-play-next">Play next</button></li>
+        <li><button id="as-add-queue">Add to queue</button></li>
         <li><button id="as-move-up">Move up</button></li>
         <li><button id="as-move-down">Move down</button></li>
         <li><button id="as-rename">Rename</button></li>
@@ -761,6 +766,18 @@
     </div>
   </div>
 
+  <div class="sheet-overlay" id="queue-overlay" hidden>
+    <div class="sheet-dialog" id="queue-dialog" role="dialog" aria-modal="true" aria-labelledby="queue-heading">
+      <div class="sheet-header">
+        <button class="sheet-close" id="btn-close-queue" aria-label="Close">✕</button>
+        <h2 id="queue-heading">Queue</h2>
+        <span class="sheet-spacer" aria-hidden="true"></span>
+      </div>
+      <p class="queue-now-playing mono" id="queue-now-playing"></p>
+      <ul class="np-upnext-list" id="queue-list"></ul>
+    </div>
+  </div>
+
   <!-- Tabs -->
   <div class="tabs" role="tablist" aria-label="Sections">
     <button role="tab" id="tab-library" aria-selected="true" aria-controls="panel-library" tabindex="0">
@@ -797,6 +814,7 @@
         <select class="sort-select" id="sort-select">
           <option value="added">Recently added</option>
           <option value="recent">Recently played</option>
+          <option value="plays">Most played</option>
           <option value="name">Name A–Z</option>
           <option value="duration">Duration</option>
         </select>
@@ -861,7 +879,7 @@
       <input type="file" id="folder-input" webkitdirectory directory multiple aria-describedby="folder-hint" />
       <p id="picker-hint" class="visually-hidden">Opens your Files app so you can select one or more audio files, including MP3 and FLAC, to add to your library.</p>
       <p id="folder-hint" class="visually-hidden">Opens your Files app so you can select an entire folder — every audio file inside it will be added to your library.</p>
-      <p class="formats-note" style="margin-top:14px;">"Choose folder" support depends on your browser — it works reliably on desktop browsers; on iPhone/iPad it may not appear or may not be fully supported by Safari.</p>
+      <p class="formats-note" style="margin-top:14px;">"Choose folder" adds every audio file inside a folder (and its subfolders) at once. It needs a fairly current version of iOS/iPadOS or desktop Safari — if it doesn't open a folder picker on your device, use "Choose files" and multi-select instead.</p>
     </div>
 
     <div class="add-summary">
@@ -1036,6 +1054,7 @@
   const miniTrackTitle = document.getElementById('mini-track-title');
   const miniTrackSub = document.getElementById('mini-track-sub');
   const btnOpenNowPlaying = document.getElementById('btn-open-now-playing');
+  const btnOpenQueue = document.getElementById('btn-open-queue');
   const btnMiniPlay = document.getElementById('btn-mini-play');
   const miniPlayIcon = document.getElementById('mini-play-icon');
   const btnMiniNext = document.getElementById('btn-mini-next');
@@ -1099,6 +1118,7 @@
   const asDetails = document.getElementById('as-details');
   const asDelete = document.getElementById('as-delete');
   const asPlayNext = document.getElementById('as-play-next');
+  const asAddQueue = document.getElementById('as-add-queue');
   const asMoveUp = document.getElementById('as-move-up');
   const asMoveDown = document.getElementById('as-move-down');
 
@@ -1114,6 +1134,12 @@
   const detailsDialog = document.getElementById('details-dialog');
   const btnCloseDetails = document.getElementById('btn-close-details');
   const detailsList = document.getElementById('details-list');
+
+  const queueOverlay = document.getElementById('queue-overlay');
+  const queueDialog = document.getElementById('queue-dialog');
+  const btnCloseQueue = document.getElementById('btn-close-queue');
+  const queueNowPlaying = document.getElementById('queue-now-playing');
+  const queueList = document.getElementById('queue-list');
 
   const toast = document.getElementById('toast');
   const toastMessage = document.getElementById('toast-message');
@@ -1161,6 +1187,7 @@
   let playlistPickerTargetIndices = [];
   let playlistPickerTriggerEl = null;
   let detailsTriggerEl = null;
+  let queueTriggerEl = null;
   let pendingDelete = null;
   let pendingDeleteTimeoutId = null;
   let importedMeta = {};
@@ -1325,6 +1352,7 @@
       favorite: !!t.favorite,
       addedAt: t.addedAt,
       lastPlayedAt: t.lastPlayedAt || null,
+      playCount: t.playCount || 0,
       duration: t.duration || null,
       tagTitle: t.tagTitle || null,
       tagArtist: t.tagArtist || null,
@@ -1364,6 +1392,7 @@
         unsupported: false,
         addedAt: rec.addedAt,
         lastPlayedAt: rec.lastPlayedAt || null,
+        playCount: rec.playCount || 0,
         size: blobRec.audioBlob.size || 0,
         playlistIds: rec.playlistIds || [],
       };
@@ -2105,6 +2134,7 @@
     const handoffTime = audioB.currentTime;
     currentIndex = targetIndex;
     toTrack.lastPlayedAt = Date.now();
+    toTrack.playCount = (toTrack.playCount || 0) + 1;
     markShufflePlayed(toTrack);
     trackTitle.textContent = toTrack.tagTitle || toTrack.name;
     trackSub.textContent = trackSubtitle(toTrack, targetIndex);
@@ -2135,7 +2165,9 @@
 
     renderPlaylist();
     if (!npOverlay.hidden) renderUpNext();
+    if (!queueOverlay.hidden) renderQueue();
     armAnalysisPrefetch();
+    persistNow();
   }
 
   async function transitionToTrack(targetIndex){
@@ -2226,6 +2258,7 @@
     npTriggerEl = document.activeElement;
     npOverlay.hidden = false;
     renderUpNext();
+    if (!queueOverlay.hidden) renderQueue();
     const focusable = getFocusable(npDialog);
     (focusable[0] || npDialog).focus();
     announce('Now Playing opened');
@@ -2237,7 +2270,14 @@
     else btnOpenNowPlaying.focus();
   }
 
-  btnOpenNowPlaying.addEventListener('click', openNowPlaying);
+  btnOpenNowPlaying.addEventListener('click', () => {
+    // Guard against the mini-player having just appeared/changed right as a
+    // tap lands (e.g. right when a track starts playing for the first time
+    // in a session) — don't let that accidentally pop open the full-screen
+    // Now Playing view.
+    if (Date.now() - miniPlayerActivatedAt < 400) return;
+    openNowPlaying();
+  });
   btnCloseNowPlaying.addEventListener('click', closeNowPlaying);
   npOverlay.addEventListener('click', (e) => { if (e.target === npOverlay) closeNowPlaying(); });
 
@@ -2496,6 +2536,7 @@
     announce(moving.length + ' tracks queued to play next');
     renderPlaylist();
     if (!npOverlay.hidden) renderUpNext();
+    if (!queueOverlay.hidden) renderQueue();
   });
 
   batchDelete.addEventListener('click', () => {
@@ -2524,6 +2565,7 @@
       batchDelete.dataset.confirming = 'false';
       renderPlaylist();
       if (!npOverlay.hidden) renderUpNext();
+      if (!queueOverlay.hidden) renderQueue();
     } else {
       batchDelete.textContent = 'Confirm delete?';
       batchDelete.dataset.confirming = 'true';
@@ -2546,6 +2588,8 @@
     actionSheetTrackName.textContent = tracks[index].tagTitle || tracks[index].name;
     asMoveUp.disabled = index === 0;
     asMoveDown.disabled = index === tracks.length - 1;
+    asPlayNext.disabled = index === currentIndex;
+    asAddQueue.disabled = index === tracks.length - 1;
     actionSheetOverlay.hidden = false;
     const focusable = getFocusable(actionSheetDialog);
     (focusable[0] || actionSheetDialog).focus();
@@ -2576,6 +2620,11 @@
     const idx = actionSheetIndex;
     closeActionSheet();
     playNext(idx);
+  });
+  asAddQueue.addEventListener('click', () => {
+    const idx = actionSheetIndex;
+    closeActionSheet();
+    addToQueue(idx);
   });
   asMoveUp.addEventListener('click', () => {
     const idx = actionSheetIndex;
@@ -2755,6 +2804,95 @@
     }
   });
 
+  // ---------- Queue ----------
+  // A standalone view of what's coming up, reachable only from its own
+  // button on the mini-player — deliberately separate from Now Playing so
+  // checking the queue never means opening the full playback screen.
+  function renderQueue(){
+    queueNowPlaying.textContent = currentIndex !== -1 && tracks[currentIndex]
+      ? 'Now playing: ' + (tracks[currentIndex].tagTitle || tracks[currentIndex].name)
+      : 'Nothing playing yet.';
+    queueList.innerHTML = '';
+    if (!tracks.length || currentIndex === -1) {
+      const li = document.createElement('li');
+      li.style.cursor = 'default';
+      li.textContent = 'Nothing queued yet.';
+      queueList.appendChild(li);
+      return;
+    }
+    if (shuffleOn) {
+      const li = document.createElement('li');
+      li.style.cursor = 'default';
+      li.textContent = 'Shuffle is on — up next will be a surprise.';
+      queueList.appendChild(li);
+      return;
+    }
+    const upcoming = [];
+    for (let i = 1; i < tracks.length && upcoming.length < 50; i++) {
+      let idx = currentIndex + i;
+      if (idx >= tracks.length) {
+        if (repeatMode === 'all') idx = idx % tracks.length;
+        else break;
+      }
+      upcoming.push(idx);
+    }
+    if (!upcoming.length) {
+      const li = document.createElement('li');
+      li.style.cursor = 'default';
+      li.textContent = 'End of your library.';
+      queueList.appendChild(li);
+      return;
+    }
+    upcoming.forEach((idx, pos) => {
+      const t = tracks[idx];
+      const li = document.createElement('li');
+      li.setAttribute('role', 'button');
+      li.setAttribute('tabindex', '0');
+      li.setAttribute('aria-label', 'Play ' + (t.tagTitle || t.name) + ' now');
+      const num = document.createElement('span');
+      num.className = 'np-idx mono';
+      num.textContent = (pos + 1);
+      const name = document.createElement('span');
+      name.className = 'np-name';
+      name.textContent = t.tagTitle || t.name;
+      const dur = document.createElement('span');
+      dur.className = 'mono';
+      dur.style.fontSize = '0.76rem';
+      dur.style.color = 'var(--paper-dim)';
+      dur.textContent = t.duration ? formatTime(t.duration) : '--:--';
+      li.appendChild(num); li.appendChild(name); li.appendChild(dur);
+      li.addEventListener('click', () => loadTrack(idx, true));
+      li.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); loadTrack(idx, true); } });
+      queueList.appendChild(li);
+    });
+  }
+
+  function openQueue(){
+    queueTriggerEl = document.activeElement;
+    renderQueue();
+    queueOverlay.hidden = false;
+    const focusable = getFocusable(queueDialog);
+    (focusable[0] || queueDialog).focus();
+  }
+  function closeQueue(){
+    queueOverlay.hidden = true;
+    if (queueTriggerEl && typeof queueTriggerEl.focus === 'function') queueTriggerEl.focus();
+    else btnOpenQueue.focus();
+  }
+  btnOpenQueue.addEventListener('click', openQueue);
+  btnCloseQueue.addEventListener('click', closeQueue);
+  queueOverlay.addEventListener('click', (e) => { if (e.target === queueOverlay) closeQueue(); });
+  queueDialog.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); closeQueue(); return; }
+    if (e.key === 'Tab') {
+      const focusable = getFocusable(queueDialog);
+      if (!focusable.length) return;
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+  });
+
   // ---------- Rendering ----------
   function getFilteredSortedTracks(){
     let list = tracks.map((t, i) => ({...t, originalIndex: i}));
@@ -2775,6 +2913,8 @@
       list.sort((a,b) => (a.duration||0) - (b.duration||0));
     } else if (sortMode === 'recent') {
       list.sort((a,b) => (b.lastPlayedAt||0) - (a.lastPlayedAt||0));
+    } else if (sortMode === 'plays') {
+      list.sort((a,b) => (b.playCount||0) - (a.playCount||0));
     }
     // 'added' keeps natural (insertion) order already
     return list;
@@ -2998,6 +3138,7 @@
     if (tracks.length === 0) setPlayerActive(false);
     renderPlaylist();
     if (!npOverlay.hidden) renderUpNext();
+    if (!queueOverlay.hidden) renderQueue();
 
     pendingDelete = { track: t, index, wasCurrent };
     toastMessage.textContent = 'Removed "' + t.name + '"';
@@ -3023,14 +3164,18 @@
     setPlayerActive(true);
     renderPlaylist();
     if (!npOverlay.hidden) renderUpNext();
+    if (!queueOverlay.hidden) renderQueue();
     announce('Restored ' + track.name);
   });
 
   // ---------- Loading / playback ----------
+  let miniPlayerActivatedAt = 0;
   function setPlayerActive(active){
+    const wasActive = player.classList.contains('active');
     player.classList.toggle('active', active);
     miniPlayer.classList.toggle('active', active);
     appEl.classList.toggle('has-player', active);
+    if (active && !wasActive) miniPlayerActivatedAt = Date.now();
     if (!active) {
       miniTrackTitle.textContent = 'No track selected';
       miniTrackSub.textContent = 'Tap to open Now Playing';
@@ -3048,7 +3193,13 @@
     if (index < 0 || index >= tracks.length) return;
     currentIndex = index;
     const t = tracks[index];
-    t.lastPlayedAt = Date.now();
+    if (autoplay) {
+      // Only count this as an actual play — not the silent restore-on-load
+      // preview, which would otherwise make "Recently played" and Track
+      // Details show a track as just-played every time the app reopens.
+      t.lastPlayedAt = Date.now();
+      t.playCount = (t.playCount || 0) + 1;
+    }
     markShufflePlayed(t);
     audio.src = t.url;
     trackTitle.textContent = t.tagTitle || t.name;
@@ -3062,6 +3213,7 @@
     if (!t.tagTitle && !t.tagArtist && !t.tagAlbum) getTrackMetadata(t);
     renderPlaylist();
     if (!npOverlay.hidden) renderUpNext();
+    if (!queueOverlay.hidden) renderQueue();
     if (autoplay) playAudio(); else updatePlayButton(false);
   }
 
@@ -3079,6 +3231,7 @@
       announce('Playing ' + tracks[currentIndex].name);
       renderPlaylist();
       armAnalysisPrefetch();
+      persistNow();
     }).catch(() => {
       // One retry: some browsers need a second resume() after a long
       // suspension before the graph actually comes back to life.
@@ -3086,6 +3239,7 @@
         updatePlayButton(true);
         renderPlaylist();
         armAnalysisPrefetch();
+        persistNow();
       }).catch(() => announce('Could not play this track. Try reopening Spool.'));
     });
   }
@@ -3179,6 +3333,23 @@
     announce(t.name + ' will play next');
     renderPlaylist();
     if (!npOverlay.hidden) renderUpNext();
+    if (!queueOverlay.hidden) renderQueue();
+  }
+
+  function addToQueue(index){
+    if (!tracks.length) return;
+    const t = tracks[index];
+    if (!t) return;
+    if (index === tracks.length - 1) { announce((t.tagTitle || t.name) + ' is already at the end of the queue'); return; }
+    const wasCurrent = index === currentIndex;
+    tracks.splice(index, 1);
+    tracks.push(t);
+    if (wasCurrent) currentIndex = tracks.length - 1; // the playing track itself moved to the end
+    else if (index < currentIndex) currentIndex--; // shifted left by the removal
+    announce((t.tagTitle || t.name) + ' added to the end of the queue');
+    renderPlaylist();
+    if (!npOverlay.hidden) renderUpNext();
+    if (!queueOverlay.hidden) renderQueue();
   }
 
   function moveTrack(index, direction){
@@ -3192,6 +3363,7 @@
     announce((tracks[target].tagTitle || tracks[target].name) + ' moved ' + (direction < 0 ? 'up' : 'down'));
     renderPlaylist();
     if (!npOverlay.hidden) renderUpNext();
+    if (!queueOverlay.hidden) renderQueue();
   }
 
   // ---------- File input ----------
@@ -3247,6 +3419,11 @@
   fileInput.addEventListener('change', (e) => {
     handleFiles(e.target.files);
     fileInput.value = '';
+  });
+
+  folderInput.addEventListener('change', (e) => {
+    handleFiles(e.target.files);
+    folderInput.value = '';
   });
 
   ['dragenter', 'dragover'].forEach(evt => {
