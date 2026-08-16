@@ -1327,6 +1327,25 @@
     return dbPut('blobs', { id, audioBlob, artworkBlob: null, artworkMime: null });
   }
 
+  // Writes many blobs to IndexedDB a few at a time instead of all at once.
+  // Firing hundreds of simultaneous large-blob writes (a big folder import
+  // can easily be gigabytes total) was overwhelming memory/IndexedDB and
+  // freezing or crashing the tab. This keeps only a handful in flight.
+  async function persistTrackBlobsThrottled(items, concurrency){
+    const results = new Array(items.length);
+    let next = 0;
+    async function worker(){
+      while (next < items.length) {
+        const i = next++;
+        results[i] = await persistTrackBlob(items[i].id, items[i].file);
+      }
+    }
+    const workers = [];
+    for (let w = 0; w < Math.min(concurrency, items.length); w++) workers.push(worker());
+    await Promise.all(workers);
+    return results;
+  }
+
   function persistTrackArtwork(id, artworkBlob, artworkMime){
     dbUpdate('blobs', id, (existing) => Object.assign({}, existing, { id, artworkBlob, artworkMime }));
   }
@@ -1791,6 +1810,22 @@
     }
   }
 
+  let scheduledRenderTimer = null;
+  function scheduleRenderPlaylist(){
+    // Used only for background metadata resolution, which can fire once per
+    // track — for a big import (hundreds of files) that meant hundreds of
+    // full list rebuilds in quick succession, which was enough to freeze or
+    // crash the tab. Coalesce those into one render every so often instead.
+    if (scheduledRenderTimer) return;
+    scheduledRenderTimer = setTimeout(() => { scheduledRenderTimer = null; renderPlaylist(); }, 400);
+  }
+
+  let scheduledSyncTimer = null;
+  function scheduleSyncLibraryToDB(){
+    if (scheduledSyncTimer) return;
+    scheduledSyncTimer = setTimeout(() => { scheduledSyncTimer = null; syncLibraryToDB(); }, 800);
+  }
+
   function applyParsedMetadata(track, result){
     if (!result) return;
     const liveTrack = tracks.find(t => t.id === track.id);
@@ -1801,7 +1836,7 @@
     if (result.album) { liveTrack.tagAlbum = result.album; tagsChanged = true; }
     if (result.artworkUrl) liveTrack.artworkUrl = result.artworkUrl;
     if (result.artworkBlob) persistTrackArtwork(liveTrack.id, result.artworkBlob, result.artworkMime || 'image/jpeg');
-    if (tagsChanged) syncLibraryToDB();
+    if (tagsChanged) scheduleSyncLibraryToDB();
     if (tracks.indexOf(liveTrack) === currentIndex) {
       updateNowPlayingArt(liveTrack);
       updateMediaSessionMetadata();
@@ -1809,7 +1844,7 @@
     // The row list is usually rendered before background parsing finishes,
     // so refresh it once real tag data comes in — otherwise tracks other
     // than the currently-playing one never show their parsed artist.
-    renderPlaylist();
+    scheduleRenderPlaylist();
   }
 
   async function parseTrackMetadata(track){
@@ -2263,10 +2298,24 @@
     return null;
   }
 
+  function getKnownDuration(){
+    // audio.duration can report Infinity/NaN for a while (or permanently)
+    // on some MP3 encodings, especially ones without a proper VBR header —
+    // a known WebKit quirk. When that happens, fall back to whatever
+    // duration we previously captured for this track so the crossfade timer
+    // still has something to work with instead of silently never firing.
+    if (audio.duration && isFinite(audio.duration)) return audio.duration;
+    const t = tracks[currentIndex];
+    if (t && t.duration && isFinite(t.duration)) return t.duration;
+    return null;
+  }
+
   function maybeStartAutoCrossfade(){
     if (!fadeDuration || !audioCtx || isCrossfading || sleepEndOfTrack || !tracks.length) return;
-    if (audio.paused || !audio.duration || !isFinite(audio.duration)) return;
-    const remaining = audio.duration - audio.currentTime;
+    if (audio.paused) return;
+    const duration = getKnownDuration();
+    if (duration === null) return;
+    const remaining = duration - audio.currentTime;
     if (remaining > fadeDuration || remaining < 0) return;
     const next = advanceIndex(true);
     if (next === null) return;
@@ -3280,29 +3329,30 @@
       return;
     }
     ensureAudioGraph();
-    // If iOS suspended the AudioContext (common after the tab sits
-    // backgrounded/idle for a while), audio.play() can succeed at the
-    // <audio> element level — currentTime advances, playbackState looks
-    // right — while actual output stays silent because the WebAudio graph
-    // downstream is still suspended. Wait for resume() to actually finish
-    // before starting playback, and retry once if it doesn't take.
-    const resumeIfNeeded = () => audioCtx.state === 'suspended' ? audioCtx.resume().catch(() => {}) : Promise.resolve();
-    resumeIfNeeded().then(() => { primeAudioB(); return audio.play(); }).then(() => {
+    // Audio route changes (like headphones disconnecting, which iOS pauses
+    // playback for automatically) and long backgrounding can both leave the
+    // AudioContext suspended in a way a single resume()+play() doesn't
+    // always clear on the first try. Retry a few times with a short delay
+    // rather than just once, instead of leaving the person to keep mashing
+    // the play button.
+    const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    function attempt(tries){
+      const resumeIfNeeded = audioCtx.state === 'suspended' ? audioCtx.resume().catch(() => {}) : Promise.resolve();
+      return resumeIfNeeded.then(() => {
+        if (tries === 0) primeAudioB();
+        return audio.play();
+      }).catch((err) => {
+        if (tries >= 3) throw err;
+        return wait(150 * (tries + 1)).then(() => attempt(tries + 1));
+      });
+    }
+    attempt(0).then(() => {
       updatePlayButton(true);
       announce('Playing ' + tracks[currentIndex].name);
       renderPlaylist();
       armAnalysisPrefetch();
       persistNow();
-    }).catch(() => {
-      // One retry: some browsers need a second resume() after a long
-      // suspension before the graph actually comes back to life.
-      resumeIfNeeded().then(() => audio.play()).then(() => {
-        updatePlayButton(true);
-        renderPlaylist();
-        armAnalysisPrefetch();
-        persistNow();
-      }).catch(() => announce('Could not play this track. Try reopening Spool.'));
-    });
+    }).catch(() => announce('Could not play this track. Try reopening Spool.'));
   }
 
   function pauseAudio(){
@@ -3383,6 +3433,8 @@
     getTrackMetadata(t);
   });
   bgAudio.addEventListener('timeupdate', () => { if (isBackgroundHandoff) updateMediaSessionPosition(); });
+  bgAudio.addEventListener('pause', () => { if (isBackgroundHandoff) updatePlayButton(false); });
+  bgAudio.addEventListener('play', () => { if (isBackgroundHandoff) updatePlayButton(true); });
 
   function updatePlayButton(playing){
     btnPlay.setAttribute('aria-pressed', playing ? 'true' : 'false');
@@ -3543,7 +3595,7 @@
     });
     tracks = tracks.concat(newTracks);
     newTracks.forEach(t => getTrackMetadata(t));
-    Promise.all(files.map((f, i) => persistTrackBlob(newTracks[i].id, f))).then(results => {
+    persistTrackBlobsThrottled(newTracks.map((t, i) => ({ id: t.id, file: files[i] })), 4).then(results => {
       const failed = results.filter(ok => !ok).length;
       if (failed > 0) {
         announce('Heads up: ' + failed + ' of ' + files.length + ' new track' + (files.length === 1 ? '' : 's') + " couldn't be saved to this device's storage — it may be full. Those will disappear on refresh unless you free up space.");
@@ -3811,6 +3863,22 @@
   });
 
   // ---------- Seek ----------
+  // The <audio> element can be paused by things outside our own code — iOS
+  // pausing playback automatically when headphones/Bluetooth disconnect is
+  // the big one, but a phone call or Siri interruption does the same. Sync
+  // our button/state to whatever the element actually reports rather than
+  // only updating it from inside our own playAudio()/pauseAudio(), so a
+  // route-change pause doesn't leave the UI stuck showing "playing" while
+  // the play button quietly needs an extra tap to catch up.
+  audio.addEventListener('pause', () => {
+    if (isBackgroundHandoff || isCrossfading) return;
+    updatePlayButton(false);
+    renderPlaylist();
+  });
+  audio.addEventListener('play', () => {
+    if (isBackgroundHandoff) return;
+    updatePlayButton(true);
+  });
   audio.addEventListener('loadedmetadata', () => {
     if (currentIndex >= 0) tracks[currentIndex].duration = audio.duration;
     timeDuration.textContent = formatTime(audio.duration);
@@ -3818,7 +3886,25 @@
     renderPlaylist();
     updateMediaSessionPosition();
   });
+  audio.addEventListener('durationchange', () => {
+    // Some MP3s report Infinity/NaN at first and only resolve a real
+    // duration partway through playback — catch that correction so the
+    // crossfade window (which needs a real duration to schedule against)
+    // isn't permanently missed for the rest of that track.
+    if (currentIndex >= 0 && audio.duration && isFinite(audio.duration)) {
+      tracks[currentIndex].duration = audio.duration;
+      timeDuration.textContent = formatTime(audio.duration);
+      seek.max = audio.duration;
+      maybeStartAutoCrossfade();
+    }
+  });
   audio.addEventListener('timeupdate', () => {
+    // maybeStartAutoCrossfade() deliberately runs even while isSeeking is
+    // true — if that flag were ever left stuck true (e.g. an assistive-tech
+    // slider interaction that fires 'input' without a matching 'change'),
+    // gating the crossfade trigger behind it would silently disable
+    // crossfading for the rest of the session.
+    maybeStartAutoCrossfade();
     if (isSeeking) return;
     timeCurrent.textContent = formatTime(audio.currentTime);
     seek.value = audio.currentTime;
@@ -3826,7 +3912,6 @@
     if (audio.duration) {
       miniProgressFill.style.width = ((audio.currentTime / audio.duration) * 100) + '%';
     }
-    maybeStartAutoCrossfade();
     updateMediaSessionPosition();
   });
   seek.addEventListener('input', () => { isSeeking = true; timeCurrent.textContent = formatTime(parseFloat(seek.value)); });
