@@ -3678,16 +3678,41 @@
     // allowing another.
     if (playAttemptInProgress) return;
     playAttemptInProgress = true;
-    const hasAudioGraph = ensureAudioGraph();
-    if (!hasAudioGraph || !audioCtx) {
+
+    // IMPORTANT FOR iPhone/iPad Safari and locally-opened HTML files:
+    // Start with plain HTMLAudioElement playback. Routing a local Blob URL
+    // through Web Audio can fail silently in some Safari/WebView contexts.
+    // The basic player should always work first; enhanced audio is optional.
+    // Web Audio is only needed for EQ/spatial/crossfade features.
+    const needsEnhancedAudio = fadeDuration > 0 || currentSpatialMode !== 'normal' || currentQualityName !== 'standard';
+    if (!needsEnhancedAudio) {
       audio.play().then(() => {
         playAttemptInProgress = false;
         updatePlayButton(true);
         announce('Playing ' + (tracks[currentIndex] ? tracks[currentIndex].name : 'track'));
         renderPlaylist();
+        persistNow();
+      }).catch((err) => {
+        playAttemptInProgress = false;
+        console.error('Spool plain audio playback failed:', err);
+        announce('Could not play this track. Make sure your iPhone is not muted, then tap Play again.');
+      });
+      return;
+    }
+
+    const hasAudioGraph = ensureAudioGraph();
+    if (!hasAudioGraph || !audioCtx) {
+      // Enhanced audio is optional. If Web Audio is unavailable, fall back
+      // to the normal HTML audio path instead of refusing to play.
+      audio.play().then(() => {
+        playAttemptInProgress = false;
+        updatePlayButton(true);
+        announce('Playing ' + (tracks[currentIndex] ? tracks[currentIndex].name : 'track'));
+        renderPlaylist();
+        persistNow();
       }).catch(() => {
         playAttemptInProgress = false;
-        announce('Could not play this track. Try tapping Play again.');
+        announce('Could not play this track. Make sure your iPhone is not muted, then tap Play again.');
       });
       return;
     }
