@@ -583,6 +583,36 @@
   .pill { border: 1px solid var(--line); padding: 8px 14px; border-radius: 999px; font-size: 0.82rem; color: var(--paper-dim); }
   .pill[aria-pressed="true"] { background: var(--teal); border-color: var(--teal); color: #fff; }
   .pill:hover { border-color: var(--brass); color: var(--paper); }
+
+  .group-context-bar { display:flex; align-items:center; gap:10px; margin-bottom:14px; }
+  .group-context-bar #group-context-label { flex:1; min-width:0; font-size:0.8rem; color: var(--paper-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+  .group-grid { list-style:none; margin:0; padding:0; display:grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+  .group-grid.group-grid-list { display:flex; flex-direction:column; gap:0; border:1px solid var(--line); border-radius: var(--radius); overflow:hidden; box-shadow: var(--shadow-card); }
+  .group-card {
+    display:flex; flex-direction:column; align-items:flex-start; text-align:left;
+    background: var(--panel); border:1px solid var(--line); border-radius: var(--radius);
+    padding: 10px; gap: 8px; box-shadow: var(--shadow-card);
+  }
+  .group-card-art {
+    width:100%; aspect-ratio: 1 / 1; border-radius: 10px; background: var(--ink);
+    background-size: cover; background-position: center;
+    display:flex; align-items:center; justify-content:center; color: var(--brass); border: 1px solid var(--line);
+  }
+  .group-card-art svg { width: 34%; height: 34%; opacity: 0.6; }
+  .group-card-name { font-size: 0.84rem; font-weight:600; line-height:1.25; }
+  .group-card-sub { font-size: 0.72rem; color: var(--paper-dim); }
+
+  .group-grid-list .group-card {
+    flex-direction: row; align-items:center; border:none; border-radius:0; border-bottom: 1px solid var(--line);
+    box-shadow:none; padding: 10px 14px;
+  }
+  .group-grid-list .group-card:last-child { border-bottom:none; }
+  .group-grid-list .group-card-art { width: 42px; height:42px; flex-shrink:0; border-radius:50%; }
+  .group-grid-list .group-card-art svg { width: 46%; height: 46%; }
+  .group-grid-list .group-card-text { flex:1; min-width:0; }
+  .group-grid-list .group-card-name { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
   .settings-row { display:flex; align-items:center; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
   .settings-row:last-child { border-bottom: none; }
   .settings-row .label { font-size: 0.9rem; font-weight: 500; }
@@ -805,50 +835,74 @@
     </div>
 
     <div id="library-content" style="display:none;">
-      <div class="lib-controls">
-        <div class="search-wrap">
-          <label for="search-input" class="visually-hidden">Search your library</label>
-          <input type="search" id="search-input" placeholder="Search your library…" />
-        </div>
-        <label for="sort-select" class="visually-hidden">Sort tracks</label>
-        <select class="sort-select" id="sort-select">
-          <option value="added">Recently added</option>
-          <option value="recent">Recently played</option>
-          <option value="plays">Most played</option>
-          <option value="name">Name A–Z</option>
-          <option value="duration">Duration</option>
-        </select>
-        <label for="playlist-filter-select" class="visually-hidden">Filter by playlist</label>
-        <select class="sort-select" id="playlist-filter-select">
-          <option value="all">All tracks</option>
-        </select>
-        <button class="fav-filter" id="fav-filter-btn" aria-pressed="false">★ Favorites</button>
-        <button class="fav-filter" id="btn-toggle-select" aria-pressed="false">Select</button>
+      <div class="pill-row" role="tablist" aria-label="Browse by" style="margin-bottom:14px;">
+        <button class="pill" id="libview-songs" role="tab" aria-selected="true" aria-pressed="true">Songs</button>
+        <button class="pill" id="libview-albums" role="tab" aria-selected="false" aria-pressed="false">Albums</button>
+        <button class="pill" id="libview-artists" role="tab" aria-selected="false" aria-pressed="false">Artists</button>
       </div>
 
-      <div class="batch-bar" id="batch-bar" hidden>
-        <span class="batch-count mono" id="batch-count">0 selected</span>
-        <button id="batch-select-all">Select all</button>
-        <button id="batch-favorite">★ Favorite</button>
-        <button id="batch-playlist">Add to playlist…</button>
-        <button id="batch-play-next">Play next</button>
-        <button class="danger" id="batch-delete">Delete</button>
-        <button id="batch-done">Done</button>
-      </div>
-
-      <div class="playlist-header">
-        <h2>Tracks</h2>
-        <span style="display:flex; align-items:center; gap:10px;">
-          <button class="btn-ghost btn-icon-text btn-accent" id="btn-shuffle-play-library" aria-label="Shuffle play this list" style="padding:7px 14px; font-size:0.78rem;">
+      <div id="library-songs-view">
+        <div class="group-context-bar" id="group-context-bar" hidden>
+          <button class="btn-ghost" id="btn-group-back" style="padding:6px 12px; font-size:0.78rem;">‹ Back</button>
+          <span class="mono" id="group-context-label"></span>
+          <button class="btn-ghost btn-icon-text btn-accent" id="btn-shuffle-play-group" style="padding:6px 12px; font-size:0.76rem;">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h3.3c1.1 0 2.1.55 2.7 1.45l6 8.1c.6.9 1.6 1.45 2.7 1.45H21M3 18h3.3c1.1 0 2.1-.55 2.7-1.45l1-1.35M17 3l4 3-4 3M17 15l4 3-4 3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
             Shuffle
           </button>
-          <button class="btn-ghost" id="btn-jump-now-playing" style="padding:6px 12px; font-size:0.76rem; display:none;">Jump to playing</button>
-          <span class="playlist-count mono" id="playlist-count">0 tracks</span>
-        </span>
+        </div>
+        <div class="lib-controls">
+          <div class="search-wrap">
+            <label for="search-input" class="visually-hidden">Search your library</label>
+            <input type="search" id="search-input" placeholder="Search your library…" />
+          </div>
+          <label for="sort-select" class="visually-hidden">Sort tracks</label>
+          <select class="sort-select" id="sort-select">
+            <option value="added">Recently added</option>
+            <option value="recent">Recently played</option>
+            <option value="plays">Most played</option>
+            <option value="name">Name A–Z</option>
+            <option value="duration">Duration</option>
+          </select>
+          <label for="playlist-filter-select" class="visually-hidden">Filter by playlist</label>
+          <select class="sort-select" id="playlist-filter-select">
+            <option value="all">All tracks</option>
+          </select>
+          <button class="fav-filter" id="fav-filter-btn" aria-pressed="false">★ Favorites</button>
+          <button class="fav-filter" id="btn-toggle-select" aria-pressed="false">Select</button>
+        </div>
+
+        <div class="batch-bar" id="batch-bar" hidden>
+          <span class="batch-count mono" id="batch-count">0 selected</span>
+          <button id="batch-select-all">Select all</button>
+          <button id="batch-favorite">★ Favorite</button>
+          <button id="batch-playlist">Add to playlist…</button>
+          <button id="batch-play-next">Play next</button>
+          <button class="danger" id="batch-delete">Delete</button>
+          <button id="batch-done">Done</button>
+        </div>
+
+        <div class="playlist-header">
+          <h2>Tracks</h2>
+          <span style="display:flex; align-items:center; gap:10px;">
+            <button class="btn-ghost btn-icon-text btn-accent" id="btn-shuffle-play-library" aria-label="Shuffle play this list" style="padding:7px 14px; font-size:0.78rem;">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h3.3c1.1 0 2.1.55 2.7 1.45l6 8.1c.6.9 1.6 1.45 2.7 1.45H21M3 18h3.3c1.1 0 2.1-.55 2.7-1.45l1-1.35M17 3l4 3-4 3M17 15l4 3-4 3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Shuffle
+            </button>
+            <button class="btn-ghost" id="btn-jump-now-playing" style="padding:6px 12px; font-size:0.76rem; display:none;">Jump to playing</button>
+            <span class="playlist-count mono" id="playlist-count">0 tracks</span>
+          </span>
+        </div>
+        <p class="playlist-stats mono" id="playlist-stats"></p>
+        <ul class="playlist" id="playlist" aria-label="Playlist. Activate a track to play it."></ul>
       </div>
-      <p class="playlist-stats mono" id="playlist-stats"></p>
-      <ul class="playlist" id="playlist" aria-label="Playlist. Activate a track to play it."></ul>
+
+      <div id="library-albums-view" hidden>
+        <ul class="group-grid" id="albums-grid" aria-label="Albums"></ul>
+      </div>
+
+      <div id="library-artists-view" hidden>
+        <ul class="group-grid group-grid-list" id="artists-grid" aria-label="Artists"></ul>
+      </div>
     </div>
 
   </div>
@@ -969,7 +1023,7 @@
           <button class="pill" data-spatial="8d" aria-pressed="false">8D</button>
         </div>
       </fieldset>
-      <p class="formats-note" style="margin-top:10px;">3D and 8D slowly rotate the sound between your left and right ear for an immersive, moving effect. Best with headphones.</p>
+      <p class="formats-note" style="margin-top:10px;">8D fast-pans the sound between your left and right ear. 3D uses real binaural spatialization to orbit the sound around your head — including front and back, not just side to side. Both need headphones to work.</p>
     </div>
 
     <div class="settings-section">
@@ -1076,6 +1130,18 @@
   const playlistStats = document.getElementById('playlist-stats');
   const btnJumpNowPlaying = document.getElementById('btn-jump-now-playing');
   const btnShufflePlayLibrary = document.getElementById('btn-shuffle-play-library');
+  const libviewSongs = document.getElementById('libview-songs');
+  const libviewAlbums = document.getElementById('libview-albums');
+  const libviewArtists = document.getElementById('libview-artists');
+  const librarySongsView = document.getElementById('library-songs-view');
+  const libraryAlbumsView = document.getElementById('library-albums-view');
+  const libraryArtistsView = document.getElementById('library-artists-view');
+  const groupContextBar = document.getElementById('group-context-bar');
+  const groupContextLabel = document.getElementById('group-context-label');
+  const btnGroupBack = document.getElementById('btn-group-back');
+  const btnShufflePlayGroup = document.getElementById('btn-shuffle-play-group');
+  const albumsGrid = document.getElementById('albums-grid');
+  const artistsGrid = document.getElementById('artists-grid');
   const searchInput = document.getElementById('search-input');
   const sortSelect = document.getElementById('sort-select');
   const favFilterBtn = document.getElementById('fav-filter-btn');
@@ -1181,6 +1247,9 @@
   let playlists = []; // {id, name}
   let nextPlaylistId = 1;
   let playlistFilterId = 'all';
+  let libraryViewMode = 'songs'; // 'songs' | 'albums' | 'artists'
+  let groupFilter = null; // { type: 'album'|'artist', value: string } | null
+  let groupSourceView = null; // which grid to return to on "back" — 'albums' | 'artists'
   let selectionMode = false;
   let selectedIds = new Set();
   let actionSheetIndex = null;
@@ -1377,6 +1446,7 @@
       tagTitle: t.tagTitle || null,
       tagArtist: t.tagArtist || null,
       tagAlbum: t.tagAlbum || null,
+      trackNumber: t.trackNumber || null,
       playlistIds: t.playlistIds || [],
     }));
     const playlistRecords = playlists.map(p => ({ id: p.id, name: p.name }));
@@ -1419,6 +1489,7 @@
       if (rec.tagTitle) t.tagTitle = rec.tagTitle;
       if (rec.tagArtist) t.tagArtist = rec.tagArtist;
       if (rec.tagAlbum) t.tagAlbum = rec.tagAlbum;
+      if (rec.trackNumber) t.trackNumber = rec.trackNumber;
       if (artworkUrl) t.artworkUrl = artworkUrl;
       restored.push(t);
       if (typeof rec.id === 'number' && rec.id >= maxId) maxId = rec.id + 1;
@@ -1531,7 +1602,7 @@
   bgAudio.preload = 'auto';
   let isBackgroundHandoff = false;
 
-  let audioCtx, chainA, chainB, spatialPanner, spatialLFO, spatialDepth, masterGain;
+  let audioCtx, chainA, chainB, stereoPanner, panner3D, stereoPannerGain, panner3DGain, spatialLFO, spatialDepth, orbitLFO, orbitDepthX, orbitDepthZ, orbitQuarterDelay, orbitFallbackTimer, masterGain;
   let audioBPrimed = false;
   let currentQualityName = 'standard';
   let currentSpatialMode = 'normal';
@@ -1552,18 +1623,79 @@
     chainA = buildChain(audio);
     chainB = buildChain(audioB);
 
-    // Spatial audio: a slow auto-pan LFO shared by both decks so the effect
-    // stays consistent through a crossfade. "Normal" = LFO depth 0 (silent/off).
-    spatialPanner = audioCtx.createStereoPanner();
-    chainA.gain.connect(spatialPanner);
-    chainB.gain.connect(spatialPanner);
+    // Spatial audio has two genuinely different modes, mixed via their own
+    // gain nodes off the same upstream signal so switching between them is
+    // just a gain crossfade, not a graph rewire:
+    //  - 8D: the classic fast stereo autopan trick (StereoPannerNode) —
+    //    pans hard left/right in the stereo field.
+    //  - 3D: real binaural spatialization (PannerNode, panningModel:
+    //    'HRTF') that orbits the sound in a circle around the listener's
+    //    head — including front/back movement, which plain stereo panning
+    //    can't produce at all since it only has a left-right axis.
+    stereoPanner = audioCtx.createStereoPanner();
+    panner3D = audioCtx.createPanner();
+    panner3D.panningModel = 'HRTF';
+    panner3D.distanceModel = 'linear';
+    panner3D.refDistance = 1;
+    panner3D.maxDistance = 10;
+    panner3D.rolloffFactor = 0; // keep volume constant through the orbit — only position should move
+    try {
+      if (audioCtx.listener.forwardX) {
+        audioCtx.listener.forwardX.value = 0; audioCtx.listener.forwardY.value = 0; audioCtx.listener.forwardZ.value = -1;
+        audioCtx.listener.upX.value = 0; audioCtx.listener.upY.value = 1; audioCtx.listener.upZ.value = 0;
+        audioCtx.listener.positionX.value = 0; audioCtx.listener.positionY.value = 0; audioCtx.listener.positionZ.value = 0;
+      } else if (audioCtx.listener.setOrientation) {
+        audioCtx.listener.setOrientation(0, 0, -1, 0, 1, 0);
+        audioCtx.listener.setPosition(0, 0, 0);
+      }
+    } catch (e) {}
+
+    stereoPannerGain = audioCtx.createGain(); stereoPannerGain.gain.value = 1;
+    panner3DGain = audioCtx.createGain(); panner3DGain.gain.value = 0;
+
+    chainA.gain.connect(stereoPanner);
+    chainA.gain.connect(panner3D);
+    chainB.gain.connect(stereoPanner);
+    chainB.gain.connect(panner3D);
+    stereoPanner.connect(stereoPannerGain);
+    panner3D.connect(panner3DGain);
+
     spatialLFO = audioCtx.createOscillator(); spatialLFO.type = 'sine'; spatialLFO.frequency.value = 0.0001;
     spatialDepth = audioCtx.createGain(); spatialDepth.gain.value = 0;
-    spatialLFO.connect(spatialDepth); spatialDepth.connect(spatialPanner.pan);
+    spatialLFO.connect(spatialDepth); spatialDepth.connect(stereoPanner.pan);
     spatialLFO.start();
 
+    // 3D orbit: two sine components 90 degrees out of phase (via a
+    // quarter-period delay on the second one) drive positionX/positionZ so
+    // the source traces a circle around the listener — front, right, back,
+    // left — instead of only sliding between left and right.
+    orbitLFO = audioCtx.createOscillator(); orbitLFO.type = 'sine'; orbitLFO.frequency.value = 0.05;
+    orbitDepthX = audioCtx.createGain(); orbitDepthX.gain.value = 0;
+    orbitDepthZ = audioCtx.createGain(); orbitDepthZ.gain.value = 0;
+    orbitQuarterDelay = audioCtx.createDelay(5);
+    orbitQuarterDelay.delayTime.value = 2.5;
+    orbitLFO.connect(orbitDepthX);
+    orbitLFO.connect(orbitQuarterDelay);
+    orbitQuarterDelay.connect(orbitDepthZ);
+    if (panner3D.positionX) {
+      orbitDepthX.connect(panner3D.positionX);
+      orbitDepthZ.connect(panner3D.positionZ);
+    } else {
+      // Very old engines only expose PannerNode.setPosition() rather than
+      // AudioParam positionX/Y/Z — fall back to nudging it by hand.
+      let orbitFallbackPhase = 0;
+      orbitFallbackTimer = setInterval(() => {
+        if (currentSpatialMode !== '3d' || !panner3D.setPosition) return;
+        orbitFallbackPhase += 0.05 * 2 * Math.PI * 0.1;
+        panner3D.setPosition(Math.sin(orbitFallbackPhase) * 1.6, 0, -Math.cos(orbitFallbackPhase) * 1.6);
+      }, 100);
+    }
+    orbitLFO.start();
+
     masterGain = audioCtx.createGain(); masterGain.gain.value = 1;
-    spatialPanner.connect(masterGain); masterGain.connect(audioCtx.destination);
+    stereoPannerGain.connect(masterGain);
+    panner3DGain.connect(masterGain);
+    masterGain.connect(audioCtx.destination);
 
     applyQuality(currentQualityName);
     applySpatialMode(currentSpatialMode);
@@ -1616,18 +1748,37 @@
 
   // ---------- Spatial audio (Normal / 3D / 8D) ----------
   const spatialPresets = {
-    normal: { freq: 0.0001, depth: 0 },
-    '3d':   { freq: 0.12, depth: 0.55 },
-    '8d':   { freq: 0.22, depth: 0.95 },
+    normal: { mode: 'none' },
+    '3d':   { mode: '3d', freq: 0.05, radius: 1.6 },   // slow HRTF orbit — genuine front/back/left/right
+    '8d':   { mode: '8d', freq: 0.22, depth: 0.95 },   // fast stereo autopan — unchanged from before
   };
   function applySpatialMode(name){
     currentSpatialMode = spatialPresets[name] ? name : 'normal';
-    if (!spatialLFO) return;
+    if (!spatialLFO || !orbitLFO) return;
     const p = spatialPresets[currentSpatialMode];
     const now = audioCtx.currentTime;
-    spatialLFO.frequency.setTargetAtTime(p.freq, now, 0.25);
-    spatialDepth.gain.setTargetAtTime(p.depth, now, 0.25);
-    if (!p.depth) spatialPanner.pan.setTargetAtTime(0, now, 0.25);
+
+    // 8D path (StereoPannerNode)
+    const stereoFreq = p.mode === '8d' ? p.freq : 0.0001;
+    const stereoDepth = p.mode === '8d' ? p.depth : 0;
+    spatialLFO.frequency.setTargetAtTime(stereoFreq, now, 0.25);
+    spatialDepth.gain.setTargetAtTime(stereoDepth, now, 0.25);
+    if (!stereoDepth) stereoPanner.pan.setTargetAtTime(0, now, 0.25);
+    stereoPannerGain.gain.setTargetAtTime(p.mode === '8d' ? 1 : 0, now, 0.3);
+
+    // 3D path (HRTF PannerNode orbit)
+    const orbitFreq = p.mode === '3d' ? p.freq : 0.05;
+    const orbitRadius = p.mode === '3d' ? p.radius : 0;
+    const safeFreqForDelay = Math.max(orbitFreq, 0.01);
+    orbitLFO.frequency.setTargetAtTime(orbitFreq, now, 0.25);
+    orbitQuarterDelay.delayTime.setTargetAtTime(Math.min(4.9, (1 / safeFreqForDelay) / 4), now, 0.01);
+    orbitDepthX.gain.setTargetAtTime(orbitRadius, now, 0.25);
+    orbitDepthZ.gain.setTargetAtTime(orbitRadius, now, 0.25);
+    panner3DGain.gain.setTargetAtTime(p.mode === '3d' ? 1 : 0, now, 0.3);
+    if (!orbitRadius && panner3D.positionX) {
+      panner3D.positionX.setTargetAtTime(0, now, 0.25);
+      panner3D.positionZ.setTargetAtTime(0, now, 0.25);
+    }
   }
 
   // ---------- Lightweight per-track tempo/loudness analysis ----------
@@ -1817,7 +1968,7 @@
     // full list rebuilds in quick succession, which was enough to freeze or
     // crash the tab. Coalesce those into one render every so often instead.
     if (scheduledRenderTimer) return;
-    scheduledRenderTimer = setTimeout(() => { scheduledRenderTimer = null; renderPlaylist(); }, 400);
+    scheduledRenderTimer = setTimeout(() => { scheduledRenderTimer = null; refreshActiveLibraryView(); }, 400);
   }
 
   let scheduledSyncTimer = null;
@@ -1834,6 +1985,7 @@
     if (result.title) { liveTrack.tagTitle = result.title; tagsChanged = true; }
     if (result.artist) { liveTrack.tagArtist = result.artist; tagsChanged = true; }
     if (result.album) { liveTrack.tagAlbum = result.album; tagsChanged = true; }
+    if (result.trackNumber) { liveTrack.trackNumber = result.trackNumber; tagsChanged = true; }
     if (result.artworkUrl) liveTrack.artworkUrl = result.artworkUrl;
     if (result.artworkBlob) persistTrackArtwork(liveTrack.id, result.artworkBlob, result.artworkMime || 'image/jpeg');
     if (tagsChanged) scheduleSyncLibraryToDB();
@@ -1916,13 +2068,18 @@
       if (id === 'TIT2' && frameBytes.length > 1) out.title = stripNulls(decodeTextBytes(frameBytes.subarray(1), frameBytes[0]));
       else if (id === 'TPE1' && frameBytes.length > 1) out.artist = stripNulls(decodeTextBytes(frameBytes.subarray(1), frameBytes[0]));
       else if (id === 'TALB' && frameBytes.length > 1) out.album = stripNulls(decodeTextBytes(frameBytes.subarray(1), frameBytes[0]));
+      else if (id === 'TRCK' && frameBytes.length > 1) {
+        const raw = stripNulls(decodeTextBytes(frameBytes.subarray(1), frameBytes[0]));
+        const n = parseInt(raw, 10);
+        if (!isNaN(n)) out.trackNumber = n;
+      }
       else if (id === 'APIC' && !out.artworkBytes) {
         const apic = parseApicFrame(frameBytes);
         if (apic) { out.artworkBytes = apic.data; out.artworkMime = apic.mime; }
       }
       offset = frameEnd;
     }
-    return (out.title || out.artist || out.album || out.artworkBytes) ? out : null;
+    return (out.title || out.artist || out.album || out.trackNumber || out.artworkBytes) ? out : null;
   }
 
   function parseApicFrame(bytes){
@@ -1968,7 +2125,7 @@
       offset = blockEnd;
       if (isLast) break;
     }
-    return (out.title || out.artist || out.album || out.artworkBytes) ? out : null;
+    return (out.title || out.artist || out.album || out.trackNumber || out.artworkBytes) ? out : null;
   }
 
   function parseVorbisComment(bytes, out){
@@ -1989,6 +2146,10 @@
       if (key === 'TITLE' && !out.title) out.title = val;
       else if (key === 'ARTIST' && !out.artist) out.artist = val;
       else if (key === 'ALBUM' && !out.album) out.album = val;
+      else if ((key === 'TRACKNUMBER' || key === 'TRACK') && !out.trackNumber) {
+        const n = parseInt(val, 10);
+        if (!isNaN(n)) out.trackNumber = n;
+      }
     }
   }
 
@@ -2051,8 +2212,14 @@
         out.artworkBytes = bytes.subarray(payloadStart, dataBox.end);
         out.artworkMime = typeFlags === 14 ? 'image/png' : 'image/jpeg';
       }
+      else if (item.type === 'trkn' && payloadStart + 4 <= dataBox.end) {
+        // 'trkn' payload: 2 bytes reserved, 2 bytes track number, 2 bytes
+        // total tracks, 2 bytes reserved — not a text atom like the others.
+        const trackNum = (bytes[payloadStart + 2] << 8) | bytes[payloadStart + 3];
+        if (trackNum > 0) out.trackNumber = trackNum;
+      }
     }
-    return (out.title || out.artist || out.album || out.artworkBytes) ? out : null;
+    return (out.title || out.artist || out.album || out.trackNumber || out.artworkBytes) ? out : null;
   }
 
   // A branded placeholder cover (a brass reel on ink) used for Media Session
@@ -3006,6 +3173,10 @@
     let list = tracks.map((t, i) => ({...t, originalIndex: i}));
     if (favOnly) list = list.filter(t => t.favorite);
     if (playlistFilterId !== 'all') list = list.filter(t => (t.playlistIds || []).includes(playlistFilterId));
+    if (groupFilter) {
+      if (groupFilter.type === 'album') list = list.filter(t => (t.tagAlbum || 'Unknown Album') === groupFilter.value);
+      else if (groupFilter.type === 'artist') list = list.filter(t => (t.tagArtist || 'Unknown Artist') === groupFilter.value);
+    }
     if (searchTerm.trim()) {
       const q = searchTerm.trim().toLowerCase();
       list = list.filter(t =>
@@ -3015,7 +3186,17 @@
         (t.tagAlbum && t.tagAlbum.toLowerCase().includes(q))
       );
     }
-    if (sortMode === 'name') {
+    if (groupFilter && groupFilter.type === 'album') {
+      // Inside an album, always order by track number regardless of the
+      // general sort dropdown — that's what "browsing an album" means.
+      // Tracks with no track-number tag fall to the end, alphabetically.
+      list.sort((a, b) => {
+        const an = a.trackNumber || Infinity;
+        const bn = b.trackNumber || Infinity;
+        if (an !== bn) return an - bn;
+        return (a.tagTitle || a.name).localeCompare(b.tagTitle || b.name);
+      });
+    } else if (sortMode === 'name') {
       list.sort((a,b) => (a.tagTitle || a.name).localeCompare(b.tagTitle || b.name));
     } else if (sortMode === 'duration') {
       list.sort((a,b) => (a.duration||0) - (b.duration||0));
@@ -3028,10 +3209,152 @@
     return list;
   }
 
-  function renderPlaylist(){
-    const list = getFilteredSortedTracks();
-    playlistEl.innerHTML = '';
+  // ---------- Browse by Album / Artist ----------
+  function groupTracksByAlbum(){
+    const map = new Map();
+    tracks.forEach((t) => {
+      const key = t.tagAlbum || 'Unknown Album';
+      if (!map.has(key)) map.set(key, { name: key, artist: t.tagArtist || '', artworkUrl: null, count: 0 });
+      const g = map.get(key);
+      g.count++;
+      if (!g.artworkUrl && t.artworkUrl) g.artworkUrl = t.artworkUrl;
+      if (!g.artist && t.tagArtist) g.artist = t.tagArtist;
+    });
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }
 
+  function groupTracksByArtist(){
+    const map = new Map();
+    tracks.forEach((t) => {
+      const key = t.tagArtist || 'Unknown Artist';
+      if (!map.has(key)) map.set(key, { name: key, artworkUrl: null, count: 0 });
+      const g = map.get(key);
+      g.count++;
+      if (!g.artworkUrl && t.artworkUrl) g.artworkUrl = t.artworkUrl;
+    });
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  function buildGroupCard(g, kind, onOpen){
+    const li = document.createElement('li');
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'group-card';
+    const countLabel = g.count + (g.count === 1 ? ' track' : ' tracks');
+    btn.setAttribute('aria-label',
+      'Open ' + kind + ' ' + g.name + (g.artist ? ' by ' + g.artist : '') + ', ' + countLabel);
+
+    const art = document.createElement('div');
+    art.className = 'group-card-art';
+    art.setAttribute('aria-hidden', 'true');
+    if (g.artworkUrl) {
+      art.style.backgroundImage = "url('" + g.artworkUrl + "')";
+    } else if (kind === 'album') {
+      art.innerHTML = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="2.6" fill="currentColor"/></svg>';
+    } else {
+      art.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c0-3.9 3.1-7 7-7s7 3.1 7 7"/></svg>';
+    }
+
+    const text = document.createElement('span');
+    text.className = 'group-card-text';
+    const name = document.createElement('span');
+    name.className = 'group-card-name';
+    name.textContent = g.name;
+    const sub = document.createElement('span');
+    sub.className = 'group-card-sub';
+    sub.textContent = kind === 'album' ? (g.artist ? g.artist + ' · ' + countLabel : countLabel) : countLabel;
+    text.appendChild(name);
+    text.appendChild(sub);
+
+    btn.appendChild(art);
+    btn.appendChild(text);
+    btn.addEventListener('click', onOpen);
+    li.appendChild(btn);
+    return li;
+  }
+
+  function renderAlbumsGrid(){
+    updateLibraryEmptyState();
+    albumsGrid.innerHTML = '';
+    const groups = groupTracksByAlbum();
+    if (!groups.length) {
+      const li = document.createElement('li');
+      li.style.cssText = 'grid-column:1/-1; text-align:center; color:var(--paper-dim); padding:24px 0; font-size:0.85rem;';
+      li.textContent = 'No albums yet.';
+      albumsGrid.appendChild(li);
+      return;
+    }
+    groups.forEach(g => {
+      albumsGrid.appendChild(buildGroupCard(g, 'album', () => {
+        groupFilter = { type: 'album', value: g.name };
+        groupSourceView = 'albums';
+        setLibraryViewMode('songs');
+      }));
+    });
+  }
+
+  function renderArtistsGrid(){
+    updateLibraryEmptyState();
+    artistsGrid.innerHTML = '';
+    const groups = groupTracksByArtist();
+    if (!groups.length) {
+      const li = document.createElement('li');
+      li.style.cssText = 'text-align:center; color:var(--paper-dim); padding:24px 0; font-size:0.85rem;';
+      li.textContent = 'No artists yet.';
+      artistsGrid.appendChild(li);
+      return;
+    }
+    groups.forEach(g => {
+      artistsGrid.appendChild(buildGroupCard(g, 'artist', () => {
+        groupFilter = { type: 'artist', value: g.name };
+        groupSourceView = 'artists';
+        setLibraryViewMode('songs');
+      }));
+    });
+  }
+
+  function updateGroupContextBar(){
+    const show = libraryViewMode === 'songs' && !!groupFilter;
+    groupContextBar.hidden = !show;
+    if (show) {
+      groupContextLabel.textContent = (groupFilter.type === 'album' ? 'Album: ' : 'Artist: ') + groupFilter.value;
+    }
+  }
+
+  function setLibraryViewMode(mode){
+    libraryViewMode = mode;
+    [['songs', libviewSongs], ['albums', libviewAlbums], ['artists', libviewArtists]].forEach(([m, btn]) => {
+      btn.setAttribute('aria-pressed', mode === m ? 'true' : 'false');
+      btn.setAttribute('aria-selected', mode === m ? 'true' : 'false');
+    });
+    librarySongsView.hidden = mode !== 'songs';
+    libraryAlbumsView.hidden = mode !== 'albums';
+    libraryArtistsView.hidden = mode !== 'artists';
+    if (mode === 'albums') renderAlbumsGrid();
+    else if (mode === 'artists') renderArtistsGrid();
+    else renderPlaylist();
+    updateGroupContextBar();
+  }
+
+  function refreshActiveLibraryView(){
+    if (libraryViewMode === 'albums') renderAlbumsGrid();
+    else if (libraryViewMode === 'artists') renderArtistsGrid();
+    else renderPlaylist();
+  }
+
+  libviewSongs.addEventListener('click', () => { groupFilter = null; groupSourceView = null; setLibraryViewMode('songs'); });
+  libviewAlbums.addEventListener('click', () => { groupFilter = null; setLibraryViewMode('albums'); });
+  libviewArtists.addEventListener('click', () => { groupFilter = null; setLibraryViewMode('artists'); });
+  btnGroupBack.addEventListener('click', () => {
+    const back = groupSourceView || 'albums';
+    groupFilter = null;
+    setLibraryViewMode(back);
+  });
+  btnShufflePlayGroup.addEventListener('click', () => {
+    shufflePlayTracks(getFilteredSortedTracks());
+  });
+
+  function updateLibraryEmptyState(){
     if (tracks.length === 0) {
       libraryEmpty.style.display = 'block';
       libraryContent.style.display = 'none';
@@ -3039,6 +3362,13 @@
       libraryEmpty.style.display = 'none';
       libraryContent.style.display = 'block';
     }
+  }
+
+  function renderPlaylist(){
+    const list = getFilteredSortedTracks();
+    playlistEl.innerHTML = '';
+
+    updateLibraryEmptyState();
 
     list.forEach((t) => {
       const li = document.createElement('li');
@@ -3296,6 +3626,7 @@
   function loadTrack(index, autoplay){
     if (index < 0 || index >= tracks.length) return;
     currentIndex = index;
+    playAttemptInProgress = false; // starting fresh — don't let a stale in-flight recovery attempt block this
     const t = tracks[index];
     if (autoplay) {
       // Only count this as an actual play — not the silent restore-on-load
@@ -3321,6 +3652,7 @@
     if (autoplay) playAudio(); else updatePlayButton(false);
   }
 
+  let playAttemptInProgress = false;
   function playAudio(){
     if (isBackgroundHandoff) {
       // Playback is currently running through the background-safe element;
@@ -3328,13 +3660,22 @@
       bgAudio.play().then(() => { updatePlayButton(true); persistNow(); }).catch(() => announce('Could not play this track.'));
       return;
     }
+    // If someone's already mashing the play button while a recovery attempt
+    // is in flight, each new tap firing its own attempt() chain would race
+    // audio.play()/pause() against each other and could make a stuck state
+    // worse instead of better. Let one attempt sequence finish before
+    // allowing another.
+    if (playAttemptInProgress) return;
+    playAttemptInProgress = true;
     ensureAudioGraph();
     // Audio route changes (like headphones disconnecting, which iOS pauses
     // playback for automatically) and long backgrounding can both leave the
     // AudioContext suspended in a way a single resume()+play() doesn't
-    // always clear on the first try. Retry a few times with a short delay
-    // rather than just once, instead of leaving the person to keep mashing
-    // the play button.
+    // always clear on the first try. Retry a few times with a short delay,
+    // and if that still doesn't take, fall back to fully reloading the
+    // track — sometimes a route-change interruption leaves the element's
+    // own decode pipeline stuck in a way only a fresh load() clears, even
+    // once the AudioContext itself reports as running again.
     const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     function attempt(tries){
       const resumeIfNeeded = audioCtx.state === 'suspended' ? audioCtx.resume().catch(() => {}) : Promise.resolve();
@@ -3346,13 +3687,48 @@
         return wait(150 * (tries + 1)).then(() => attempt(tries + 1));
       });
     }
+    function hardReloadAndPlay(){
+      const t = tracks[currentIndex];
+      if (!t) return Promise.reject(new Error('no current track'));
+      const resumeIfNeeded = audioCtx.state === 'suspended' ? audioCtx.resume().catch(() => {}) : Promise.resolve();
+      return resumeIfNeeded.then(() => new Promise((resolve, reject) => {
+        const savedTime = audio.currentTime;
+        const onReady = () => {
+          audio.removeEventListener('loadedmetadata', onReady);
+          audio.removeEventListener('error', onError);
+          audio.currentTime = savedTime;
+          audio.play().then(resolve).catch(reject);
+        };
+        const onError = () => {
+          audio.removeEventListener('loadedmetadata', onReady);
+          audio.removeEventListener('error', onError);
+          reject(new Error('reload failed'));
+        };
+        audio.addEventListener('loadedmetadata', onReady);
+        audio.addEventListener('error', onError);
+        audio.src = t.url;
+        audio.load();
+      }));
+    }
     attempt(0).then(() => {
+      playAttemptInProgress = false;
       updatePlayButton(true);
       announce('Playing ' + tracks[currentIndex].name);
       renderPlaylist();
       armAnalysisPrefetch();
       persistNow();
-    }).catch(() => announce('Could not play this track. Try reopening Spool.'));
+    }).catch(() => {
+      hardReloadAndPlay().then(() => {
+        playAttemptInProgress = false;
+        updatePlayButton(true);
+        renderPlaylist();
+        armAnalysisPrefetch();
+        persistNow();
+      }).catch(() => {
+        playAttemptInProgress = false;
+        announce('Could not play this track. Try reopening Spool.');
+      });
+    });
   }
 
   function pauseAudio(){
@@ -3603,7 +3979,7 @@
     });
     persistNow();
     setPlayerActive(true);
-    renderPlaylist();
+    refreshActiveLibraryView();
     if (wasEmpty) {
       loadTrack(0, false);
       announce(tracks.length + ' tracks added to your library. First track ready to play.' + (matchedCount ? ' Restored saved details for ' + matchedCount + '.' : ''));
@@ -3735,7 +4111,8 @@
       trackTitle.textContent = 'No track selected';
       trackSub.textContent = '—';
       updatePlayButton(false);
-      renderPlaylist();
+      groupFilter = null; groupSourceView = null;
+      setLibraryViewMode('songs');
       announce('Library cleared');
       btnClearLibrary.textContent = 'Clear library';
       btnClearLibrary.dataset.confirming = 'false';
@@ -3759,6 +4136,7 @@
       currentIndex = -1;
       shuffleOn = false; repeatMode = 'off'; searchTerm=''; sortMode='added'; favOnly=false; renamingIndex = null;
       playlists = []; playlistFilterId = 'all'; selectionMode = false; selectedIds.clear();
+      groupFilter = null; groupSourceView = null; libraryViewMode = 'songs';
       importedMeta = {};
       clearPersistedData();
       audio.pause(); audio.removeAttribute('src'); audio.playbackRate = 1;
@@ -3791,7 +4169,7 @@
       fadeSelect.value = '0';
       if (masterGain) masterGain.gain.value = 1;
       setTheme('dark');
-      renderPlaylist();
+      setLibraryViewMode('songs');
       announce('Library and settings reset');
       btnResetAll.textContent = 'Reset library and settings';
       btnResetAll.dataset.confirming = 'false';
@@ -4075,6 +4453,14 @@
   // playback off to the plain background-safe element right as that
   // happens, and hand it back — with full EQ/crossfade/spatial audio
   // restored — the moment the app is foregrounded again.
+  //
+  // Several overlapping signals are wired to the same handoff functions
+  // (both are safe to call redundantly — they no-op if already in the
+  // state they'd move to) because different backgrounding paths on iOS
+  // fire different events, and not always with enough lead time before JS
+  // execution itself gets suspended: locking the screen reliably fires
+  // visibilitychange, but switching to another app can arrive as blur or
+  // pagehide first, sometimes without a timely visibilitychange at all.
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') {
       handoffToBackground();
@@ -4083,9 +4469,16 @@
       if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
     }
   });
-  // iOS fires pagehide/freeze in some backgrounding paths where
-  // visibilitychange can arrive too late to catch the handoff in time.
   window.addEventListener('pagehide', () => { handoffToBackground(); });
+  window.addEventListener('blur', () => { handoffToBackground(); });
+  window.addEventListener('pageshow', () => {
+    handoffToForeground();
+    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+  });
+  window.addEventListener('focus', () => {
+    handoffToForeground();
+    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+  });
 
   // ---------- Keyboard shortcuts ----------
   document.addEventListener('keydown', (e) => {
