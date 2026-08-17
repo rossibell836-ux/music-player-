@@ -1057,7 +1057,7 @@
     <div class="settings-section">
       <h2>Data</h2>
       <p class="formats-note" id="autosave-status" style="margin-bottom:12px;">Checking storage…</p>
-      <p class="formats-note" style="margin-bottom:12px;">Your audio files themselves are saved on this device (in this browser's local storage), so your library survives a refresh or reopening the app. They never leave your device. Clearing this browser's site data will remove them — use export/import below as a portable backup of your favorites and playlists, or to move them to another device or browser.</p>
+      <p class="formats-note" style="margin-bottom:12px;">Your audio files themselves are saved on this device (in this browser's IndexedDB storage), so your library survives a refresh or reopening the app. They never leave your device. Clearing this browser's site data will remove them — use export/import below as a portable backup of your favorites and playlists, or to move them to another device or browser.</p>
       <div class="pill-row" style="margin-bottom:14px;">
         <button class="btn-ghost" id="btn-export-data">Export favorites &amp; playlists</button>
         <label class="btn-ghost" for="import-data-input" style="cursor:pointer;">Import backup</label>
@@ -1284,8 +1284,8 @@
     : 'This browser is blocking on-device storage (common in private/incognito mode), so nothing will be remembered automatically. Use Export below as a manual backup instead.';
 
   // ---------- Local library storage (IndexedDB) ----------
-  // localStorage only ever held small text metadata (favorites, playlists,
-  // renames) — the actual audio files were never saved, so refreshing the
+  // localStorage only holds small text metadata (favorites, playlists,
+  // renames). The actual audio files are stored in IndexedDB, so refreshing the
   // page wiped the library and you had to re-pick every file. This stores
   // the audio (and artwork) itself in IndexedDB, keyed by track id, so the
   // whole library survives a refresh with nothing to re-select.
@@ -1618,10 +1618,21 @@
   }
 
   function ensureAudioGraph(){
-    if (audioCtx) return;
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    chainA = buildChain(audio);
-    chainB = buildChain(audioB);
+    if (audioCtx) return true;
+    const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextCtor) return false;
+    try {
+      audioCtx = new AudioContextCtor();
+      chainA = buildChain(audio);
+      chainB = buildChain(audioB);
+    } catch (e) {
+      // Web Audio is optional: core HTML audio playback should still work
+      // in restricted/older WebViews that cannot create an audio graph.
+      audioCtx = null;
+      chainA = null;
+      chainB = null;
+      return false;
+    }
 
     // Spatial audio has two genuinely different modes, mixed via their own
     // gain nodes off the same upstream signal so switching between them is
@@ -3667,7 +3678,19 @@
     // allowing another.
     if (playAttemptInProgress) return;
     playAttemptInProgress = true;
-    ensureAudioGraph();
+    const hasAudioGraph = ensureAudioGraph();
+    if (!hasAudioGraph || !audioCtx) {
+      audio.play().then(() => {
+        playAttemptInProgress = false;
+        updatePlayButton(true);
+        announce('Playing ' + (tracks[currentIndex] ? tracks[currentIndex].name : 'track'));
+        renderPlaylist();
+      }).catch(() => {
+        playAttemptInProgress = false;
+        announce('Could not play this track. Try tapping Play again.');
+      });
+      return;
+    }
     // Audio route changes (like headphones disconnecting, which iOS pauses
     // playback for automatically) and long backgrounding can both leave the
     // AudioContext suspended in a way a single resume()+play() doesn't
