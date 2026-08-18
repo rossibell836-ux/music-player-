@@ -1057,7 +1057,7 @@
     <div class="settings-section">
       <h2>Data</h2>
       <p class="formats-note" id="autosave-status" style="margin-bottom:12px;">Checking storage…</p>
-      <p class="formats-note" style="margin-bottom:12px;">Your audio files themselves are saved on this device (in this browser's IndexedDB storage), so your library survives a refresh or reopening the app. They never leave your device. Clearing this browser's site data will remove them — use export/import below as a portable backup of your favorites and playlists, or to move them to another device or browser.</p>
+      <p class="formats-note" style="margin-bottom:12px;">Your audio files themselves are saved on this device (in this browser's local storage), so your library survives a refresh or reopening the app. They never leave your device. Clearing this browser's site data will remove them — use export/import below as a portable backup of your favorites and playlists, or to move them to another device or browser.</p>
       <div class="pill-row" style="margin-bottom:14px;">
         <button class="btn-ghost" id="btn-export-data">Export favorites &amp; playlists</button>
         <label class="btn-ghost" for="import-data-input" style="cursor:pointer;">Import backup</label>
@@ -1284,8 +1284,8 @@
     : 'This browser is blocking on-device storage (common in private/incognito mode), so nothing will be remembered automatically. Use Export below as a manual backup instead.';
 
   // ---------- Local library storage (IndexedDB) ----------
-  // localStorage only holds small text metadata (favorites, playlists,
-  // renames). The actual audio files are stored in IndexedDB, so refreshing the
+  // localStorage only ever held small text metadata (favorites, playlists,
+  // renames) — the actual audio files were never saved, so refreshing the
   // page wiped the library and you had to re-pick every file. This stores
   // the audio (and artwork) itself in IndexedDB, keyed by track id, so the
   // whole library survives a refresh with nothing to re-select.
@@ -1618,21 +1618,10 @@
   }
 
   function ensureAudioGraph(){
-    if (audioCtx) return true;
-    const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
-    if (!AudioContextCtor) return false;
-    try {
-      audioCtx = new AudioContextCtor();
-      chainA = buildChain(audio);
-      chainB = buildChain(audioB);
-    } catch (e) {
-      // Web Audio is optional: core HTML audio playback should still work
-      // in restricted/older WebViews that cannot create an audio graph.
-      audioCtx = null;
-      chainA = null;
-      chainB = null;
-      return false;
-    }
+    if (audioCtx) return;
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    chainA = buildChain(audio);
+    chainB = buildChain(audioB);
 
     // Spatial audio has two genuinely different modes, mixed via their own
     // gain nodes off the same upstream signal so switching between them is
@@ -1775,7 +1764,14 @@
     spatialLFO.frequency.setTargetAtTime(stereoFreq, now, 0.25);
     spatialDepth.gain.setTargetAtTime(stereoDepth, now, 0.25);
     if (!stereoDepth) stereoPanner.pan.setTargetAtTime(0, now, 0.25);
-    stereoPannerGain.gain.setTargetAtTime(p.mode === '8d' ? 1 : 0, now, 0.3);
+    // "Normal" has no dedicated audio path of its own — it plays straight
+    // through the stereo panner with zero pan depth (i.e. unprocessed,
+    // centered), same as 8D does when active. Only "3D" routes through the
+    // separate HRTF panner instead. Muting the stereo path for anything
+    // other than 8D specifically (the bug: normal got muted along with it,
+    // and 3D's path defaulted to silent too) meant "Normal" had no audio
+    // path connected to the output at all — total silence by default.
+    stereoPannerGain.gain.setTargetAtTime(p.mode === '3d' ? 0 : 1, now, 0.3);
 
     // 3D path (HRTF PannerNode orbit)
     const orbitFreq = p.mode === '3d' ? p.freq : 0.05;
@@ -2683,7 +2679,9 @@
         if (!list.length) { announce('This playlist has no tracks yet.'); return; }
         playlistFilterId = p.id;
         playlistFilterSelect.value = p.id;
+        groupFilter = null; groupSourceView = null;
         selectTab('tab-library');
+        setLibraryViewMode('songs');
         shufflePlayTracks(list);
       });
 
@@ -2707,8 +2705,9 @@
     if (!p) return;
     playlistFilterId = id;
     playlistFilterSelect.value = id;
+    groupFilter = null; groupSourceView = null;
     selectTab('tab-library');
-    renderPlaylist();
+    setLibraryViewMode('songs');
     announce('Showing playlist ' + p.name);
   }
 
@@ -3678,44 +3677,7 @@
     // allowing another.
     if (playAttemptInProgress) return;
     playAttemptInProgress = true;
-
-    // IMPORTANT FOR iPhone/iPad Safari and locally-opened HTML files:
-    // Start with plain HTMLAudioElement playback. Routing a local Blob URL
-    // through Web Audio can fail silently in some Safari/WebView contexts.
-    // The basic player should always work first; enhanced audio is optional.
-    // Web Audio is only needed for EQ/spatial/crossfade features.
-    const needsEnhancedAudio = fadeDuration > 0 || currentSpatialMode !== 'normal' || currentQualityName !== 'standard';
-    if (!needsEnhancedAudio) {
-      audio.play().then(() => {
-        playAttemptInProgress = false;
-        updatePlayButton(true);
-        announce('Playing ' + (tracks[currentIndex] ? tracks[currentIndex].name : 'track'));
-        renderPlaylist();
-        persistNow();
-      }).catch((err) => {
-        playAttemptInProgress = false;
-        console.error('Spool plain audio playback failed:', err);
-        announce('Could not play this track. Make sure your iPhone is not muted, then tap Play again.');
-      });
-      return;
-    }
-
-    const hasAudioGraph = ensureAudioGraph();
-    if (!hasAudioGraph || !audioCtx) {
-      // Enhanced audio is optional. If Web Audio is unavailable, fall back
-      // to the normal HTML audio path instead of refusing to play.
-      audio.play().then(() => {
-        playAttemptInProgress = false;
-        updatePlayButton(true);
-        announce('Playing ' + (tracks[currentIndex] ? tracks[currentIndex].name : 'track'));
-        renderPlaylist();
-        persistNow();
-      }).catch(() => {
-        playAttemptInProgress = false;
-        announce('Could not play this track. Make sure your iPhone is not muted, then tap Play again.');
-      });
-      return;
-    }
+    ensureAudioGraph();
     // Audio route changes (like headphones disconnecting, which iOS pauses
     // playback for automatically) and long backgrounding can both leave the
     // AudioContext suspended in a way a single resume()+play() doesn't
