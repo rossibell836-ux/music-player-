@@ -1094,7 +1094,7 @@
           <button class="pill" data-spatial="8d" aria-pressed="false">8D</button>
         </div>
       </fieldset>
-      <p class="formats-note" style="margin-top:10px;">8D fast-pans the sound between your left and right ear. 3D uses real binaural spatialization to orbit the sound around your head — including front and back, not just side to side. Both need headphones to work.</p>
+      <p class="formats-note" style="margin-top:10px;">8D uses real binaural spatialization to continuously rotate the sound around your head — front, side, back, side, and around again. 3D uses the same spatial audio technology but for a subtler sense of depth and position, gently drifting in distance and height rather than spinning. Both need headphones to work.</p>
     </div>
 
     <div class="settings-section">
@@ -1930,7 +1930,7 @@
   bgAudio.preload = 'auto';
   let isBackgroundHandoff = false;
 
-  let audioCtx, chainA, chainB, stereoPanner, panner3D, stereoPannerGain, panner3DGain, spatialLFO, spatialDepth, orbitLFO, orbitDepthX, orbitDepthZ, orbitQuarterDelay, orbitFallbackTimer, masterGain;
+  let audioCtx, chainA, chainB, panner3D, dryGain, pannerOutGain, orbitLFO, orbitDepthX, orbitDepthZ, orbitQuarterDelay, depthLFOx, depthLFOy, depthLFOz, depthGainX, depthGainY, depthGainZ, spatialFallbackTimer, masterGain;
   let audioBPrimed = false;
   let bgAudioPrimed = false;
   let currentQualityName = 'standard';
@@ -1952,22 +1952,29 @@
     chainA = buildChain(audio);
     chainB = buildChain(audioB);
 
-    // Spatial audio has two genuinely different modes, mixed via their own
-    // gain nodes off the same upstream signal so switching between them is
-    // just a gain crossfade, not a graph rewire:
-    //  - 8D: the classic fast stereo autopan trick (StereoPannerNode) —
-    //    pans hard left/right in the stereo field.
-    //  - 3D: real binaural spatialization (PannerNode, panningModel:
-    //    'HRTF') that orbits the sound in a circle around the listener's
-    //    head — including front/back movement, which plain stereo panning
-    //    can't produce at all since it only has a left-right axis.
-    stereoPanner = audioCtx.createStereoPanner();
+    // Spatial audio: three genuinely different signal paths, mixed via
+    // their own gain nodes off the same upstream signal, so switching
+    // between them is just a gain crossfade — never a graph rewire, never a
+    // disconnect.
+    //  - Normal: a plain dry path, no panner at all. Untouched by anything
+    //    below it.
+    //  - 8D and 3D SHARE one real binaural panner (PannerNode, panningModel:
+    //    'HRTF' — genuine spatial audio, not stereo left/right panning) but
+    //    drive its position with different motion:
+    //      8D = a full, fairly fast circle in the horizontal plane around
+    //           the listener's head (front -> right -> back -> left ->
+    //           front) — the classic "sound rotating around you" effect.
+    //      3D = a slow, gentle wander in depth (near/far) and a little
+    //           height, using three independently-timed oscillators so the
+    //           path doesn't trace a simple repeating circle — a sense of
+    //           the sound having real position and space around it, not a
+    //           showy spin.
     panner3D = audioCtx.createPanner();
     panner3D.panningModel = 'HRTF';
     panner3D.distanceModel = 'linear';
     panner3D.refDistance = 1;
     panner3D.maxDistance = 10;
-    panner3D.rolloffFactor = 0; // keep volume constant through the orbit — only position should move
+    panner3D.rolloffFactor = 0; // keep volume constant as position moves — only position should change
     try {
       if (audioCtx.listener.forwardX) {
         audioCtx.listener.forwardX.value = 0; audioCtx.listener.forwardY.value = 0; audioCtx.listener.forwardZ.value = -1;
@@ -1979,26 +1986,20 @@
       }
     } catch (e) {}
 
-    stereoPannerGain = audioCtx.createGain(); stereoPannerGain.gain.value = 1;
-    panner3DGain = audioCtx.createGain(); panner3DGain.gain.value = 0;
+    dryGain = audioCtx.createGain(); dryGain.gain.value = 1;
+    pannerOutGain = audioCtx.createGain(); pannerOutGain.gain.value = 0;
 
-    chainA.gain.connect(stereoPanner);
+    chainA.gain.connect(dryGain);
     chainA.gain.connect(panner3D);
-    chainB.gain.connect(stereoPanner);
+    chainB.gain.connect(dryGain);
     chainB.gain.connect(panner3D);
-    stereoPanner.connect(stereoPannerGain);
-    panner3D.connect(panner3DGain);
+    panner3D.connect(pannerOutGain);
 
-    spatialLFO = audioCtx.createOscillator(); spatialLFO.type = 'sine'; spatialLFO.frequency.value = 0.0001;
-    spatialDepth = audioCtx.createGain(); spatialDepth.gain.value = 0;
-    spatialLFO.connect(spatialDepth); spatialDepth.connect(stereoPanner.pan);
-    spatialLFO.start();
-
-    // 3D orbit: two sine components 90 degrees out of phase (via a
-    // quarter-period delay on the second one) drive positionX/positionZ so
-    // the source traces a circle around the listener — front, right, back,
-    // left — instead of only sliding between left and right.
-    orbitLFO = audioCtx.createOscillator(); orbitLFO.type = 'sine'; orbitLFO.frequency.value = 0.05;
+    // 8D motion: one oscillator plus a quarter-period-delayed copy of
+    // itself (a cheap sine/cosine pair) drives positionX/positionZ so the
+    // source traces a circle around the listener instead of just sliding
+    // left-right.
+    orbitLFO = audioCtx.createOscillator(); orbitLFO.type = 'sine'; orbitLFO.frequency.value = 0.1;
     orbitDepthX = audioCtx.createGain(); orbitDepthX.gain.value = 0;
     orbitDepthZ = audioCtx.createGain(); orbitDepthZ.gain.value = 0;
     orbitQuarterDelay = audioCtx.createDelay(5);
@@ -2006,24 +2007,50 @@
     orbitLFO.connect(orbitDepthX);
     orbitLFO.connect(orbitQuarterDelay);
     orbitQuarterDelay.connect(orbitDepthZ);
+
+    // 3D motion: three independently-timed oscillators for X/Y/Z so the
+    // path wanders through space rather than tracing a clean repeating
+    // shape — genuine depth and position, not a rotation.
+    depthLFOx = audioCtx.createOscillator(); depthLFOx.type = 'sine'; depthLFOx.frequency.value = 0.035;
+    depthLFOy = audioCtx.createOscillator(); depthLFOy.type = 'sine'; depthLFOy.frequency.value = 0.023;
+    depthLFOz = audioCtx.createOscillator(); depthLFOz.type = 'sine'; depthLFOz.frequency.value = 0.017;
+    depthGainX = audioCtx.createGain(); depthGainX.gain.value = 0;
+    depthGainY = audioCtx.createGain(); depthGainY.gain.value = 0;
+    depthGainZ = audioCtx.createGain(); depthGainZ.gain.value = 0;
+    depthLFOx.connect(depthGainX);
+    depthLFOy.connect(depthGainY);
+    depthLFOz.connect(depthGainZ);
+
     if (panner3D.positionX) {
       orbitDepthX.connect(panner3D.positionX);
       orbitDepthZ.connect(panner3D.positionZ);
+      depthGainX.connect(panner3D.positionX);
+      depthGainY.connect(panner3D.positionY);
+      depthGainZ.connect(panner3D.positionZ);
     } else {
       // Very old engines only expose PannerNode.setPosition() rather than
       // AudioParam positionX/Y/Z — fall back to nudging it by hand.
-      let orbitFallbackPhase = 0;
-      orbitFallbackTimer = setInterval(() => {
-        if (currentSpatialMode !== '3d' || !panner3D.setPosition) return;
-        orbitFallbackPhase += 0.05 * 2 * Math.PI * 0.1;
-        panner3D.setPosition(Math.sin(orbitFallbackPhase) * 1.6, 0, -Math.cos(orbitFallbackPhase) * 1.6);
+      let fallbackPhase = 0;
+      spatialFallbackTimer = setInterval(() => {
+        if (!panner3D.setPosition) return;
+        fallbackPhase += 2 * Math.PI * 0.1 * 0.1;
+        if (currentSpatialMode === '8d') {
+          panner3D.setPosition(Math.sin(fallbackPhase * 2.86) * 2.4, 0, -Math.cos(fallbackPhase * 2.86) * 2.4);
+        } else if (currentSpatialMode === '3d') {
+          panner3D.setPosition(
+            Math.sin(fallbackPhase * 1) * 0.9,
+            Math.sin(fallbackPhase * 0.66) * 0.4,
+            -1.8 + Math.sin(fallbackPhase * 0.49) * 0.7
+          );
+        }
       }, 100);
     }
     orbitLFO.start();
+    depthLFOx.start(); depthLFOy.start(); depthLFOz.start();
 
     masterGain = audioCtx.createGain(); masterGain.gain.value = 1;
-    stereoPannerGain.connect(masterGain);
-    panner3DGain.connect(masterGain);
+    dryGain.connect(masterGain);
+    pannerOutGain.connect(masterGain);
     masterGain.connect(audioCtx.destination);
 
     applyQuality(currentQualityName);
@@ -2105,42 +2132,53 @@
   // ---------- Spatial audio (Normal / 3D / 8D) ----------
   const spatialPresets = {
     normal: { mode: 'none' },
-    '3d':   { mode: '3d', freq: 0.05, radius: 1.6 },   // slow HRTF orbit — genuine front/back/left/right
-    '8d':   { mode: '8d', freq: 0.22, depth: 0.95 },   // fast stereo autopan — unchanged from before
+    // 8D: a full, fairly fast circle around the listener's head — the
+    // classic "sound rotating around you" effect, done with real binaural
+    // panning instead of stereo left/right panning.
+    '8d':   { mode: '8d', freq: 0.1, radius: 2.4 },
+    // 3D: a slow multi-axis wander (depth + a little height) — a sense of
+    // real position and space, not a showy spin.
+    '3d':   { mode: '3d', freqX: 0.035, freqY: 0.023, freqZ: 0.017, ampX: 0.9, ampY: 0.4, ampZ: 0.7, baseZ: -1.8 },
   };
   function applySpatialMode(name){
     currentSpatialMode = spatialPresets[name] ? name : 'normal';
-    if (!spatialLFO || !orbitLFO) return;
+    if (!orbitLFO || !depthLFOx) return;
     const p = spatialPresets[currentSpatialMode];
     const now = audioCtx.currentTime;
+    const isPannerActive = p.mode === '8d' || p.mode === '3d';
 
-    // 8D path (StereoPannerNode)
-    const stereoFreq = p.mode === '8d' ? p.freq : 0.0001;
-    const stereoDepth = p.mode === '8d' ? p.depth : 0;
-    spatialLFO.frequency.setTargetAtTime(stereoFreq, now, 0.25);
-    spatialDepth.gain.setTargetAtTime(stereoDepth, now, 0.25);
-    if (!stereoDepth) stereoPanner.pan.setTargetAtTime(0, now, 0.25);
-    // "Normal" has no dedicated audio path of its own — it plays straight
-    // through the stereo panner with zero pan depth (i.e. unprocessed,
-    // centered), same as 8D does when active. Only "3D" routes through the
-    // separate HRTF panner instead. Muting the stereo path for anything
-    // other than 8D specifically (the bug: normal got muted along with it,
-    // and 3D's path defaulted to silent too) meant "Normal" had no audio
-    // path connected to the output at all — total silence by default.
-    stereoPannerGain.gain.setTargetAtTime(p.mode === '3d' ? 0 : 1, now, 0.3);
+    // Normal plays through a plain dry path with no panner touching it at
+    // all; 8D and 3D share the HRTF panner, so this is the only gain pair
+    // that decides whether anything is audible.
+    dryGain.gain.setTargetAtTime(isPannerActive ? 0 : 1, now, 0.3);
+    pannerOutGain.gain.setTargetAtTime(isPannerActive ? 1 : 0, now, 0.3);
 
-    // 3D path (HRTF PannerNode orbit)
-    const orbitFreq = p.mode === '3d' ? p.freq : 0.05;
-    const orbitRadius = p.mode === '3d' ? p.radius : 0;
-    const safeFreqForDelay = Math.max(orbitFreq, 0.01);
+    // 8D motion
+    const orbitActive = p.mode === '8d';
+    const orbitFreq = orbitActive ? p.freq : 0.1;
+    const orbitRadius = orbitActive ? p.radius : 0;
     orbitLFO.frequency.setTargetAtTime(orbitFreq, now, 0.25);
-    orbitQuarterDelay.delayTime.setTargetAtTime(Math.min(4.9, (1 / safeFreqForDelay) / 4), now, 0.01);
+    orbitQuarterDelay.delayTime.setTargetAtTime(Math.min(4.9, (1 / Math.max(orbitFreq, 0.01)) / 4), now, 0.01);
     orbitDepthX.gain.setTargetAtTime(orbitRadius, now, 0.25);
     orbitDepthZ.gain.setTargetAtTime(orbitRadius, now, 0.25);
-    panner3DGain.gain.setTargetAtTime(p.mode === '3d' ? 1 : 0, now, 0.3);
-    if (!orbitRadius && panner3D.positionX) {
+
+    // 3D motion
+    const depthActive = p.mode === '3d';
+    depthLFOx.frequency.setTargetAtTime(depthActive ? p.freqX : 0.035, now, 0.25);
+    depthLFOy.frequency.setTargetAtTime(depthActive ? p.freqY : 0.023, now, 0.25);
+    depthLFOz.frequency.setTargetAtTime(depthActive ? p.freqZ : 0.017, now, 0.25);
+    depthGainX.gain.setTargetAtTime(depthActive ? p.ampX : 0, now, 0.25);
+    depthGainY.gain.setTargetAtTime(depthActive ? p.ampY : 0, now, 0.25);
+    depthGainZ.gain.setTargetAtTime(depthActive ? p.ampZ : 0, now, 0.25);
+
+    // Baseline (intrinsic) position — 8D orbits centered on the listener
+    // (0,0,0); 3D wanders around a point a little in front. Only one of
+    // these two motion sources is ever contributing (the other's gain is
+    // 0), so setting the baseline per-mode doesn't fight the inactive one.
+    if (panner3D.positionX) {
       panner3D.positionX.setTargetAtTime(0, now, 0.25);
-      panner3D.positionZ.setTargetAtTime(0, now, 0.25);
+      panner3D.positionY.setTargetAtTime(0, now, 0.25);
+      panner3D.positionZ.setTargetAtTime(depthActive ? p.baseZ : 0, now, 0.25);
     }
   }
 
