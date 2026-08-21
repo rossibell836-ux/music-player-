@@ -356,6 +356,18 @@
   .stats-list .stats-item-name { flex:1; min-width:0; font-size:0.86rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .stats-list .stats-item-sub { flex-shrink:0; font-size:0.74rem; color: var(--paper-dim); }
   .stats-list-empty { padding: 16px; text-align:center; color: var(--paper-dim); font-size:0.82rem; border: 1.5px dashed var(--line); border-radius: var(--radius); }
+
+  .dupe-group { border:1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-card); margin-bottom: 16px; overflow:hidden; }
+  .dupe-group-header { padding: 12px 14px; border-bottom: 1px solid var(--line); background: rgba(var(--brass-rgb), 0.06); }
+  .dupe-group-title { font-size: 0.88rem; font-weight:600; }
+  .dupe-group-sub { font-size: 0.74rem; color: var(--paper-dim); margin-top:2px; }
+  .dupe-row { display:flex; align-items:center; gap:10px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  .dupe-row:last-of-type { border-bottom:none; }
+  .dupe-row-text { flex:1; min-width:0; }
+  .dupe-row-name { font-size: 0.84rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .dupe-row-sub { font-size: 0.7rem; color: var(--paper-dim); }
+  .dupe-row-keep-badge { font-size: 0.66rem; font-weight:700; color: var(--brass-bright); text-transform:uppercase; letter-spacing:0.03em; flex-shrink:0; }
+  .dupe-group-actions { padding: 10px 14px; }
   .details-row:last-child { border-bottom: none; }
   .details-row .dt-label { color: var(--paper-dim); flex-shrink: 0; }
   .details-row .dt-value { font-weight: 500; text-align: right; word-break: break-word; }
@@ -596,6 +608,7 @@
   }
   .add-summary p { margin: 0; font-size: 0.85rem; color: var(--paper-dim); }
   .formats-note { font-size: 0.78rem; color: var(--paper-dim); line-height: 1.6; margin-top: 6px; }
+  .import-result-note { font-size: 0.82rem; color: var(--paper); background: rgba(var(--brass-rgb), 0.1); border: 1px solid var(--brass); border-radius: var(--radius); padding: 10px 14px; margin-top: 10px; }
 
   /* Settings tab */
   .settings-section { margin-bottom: 26px; }
@@ -869,6 +882,18 @@
     </div>
   </div>
 
+  <div class="sheet-overlay" id="dupes-overlay" hidden>
+    <div class="sheet-dialog" id="dupes-dialog" role="dialog" aria-modal="true" aria-labelledby="dupes-heading">
+      <div class="sheet-header">
+        <button class="sheet-close" id="btn-close-dupes" aria-label="Close">✕</button>
+        <h2 id="dupes-heading">Duplicate Tracks</h2>
+        <span class="sheet-spacer" aria-hidden="true"></span>
+      </div>
+      <p class="mono" id="dupes-summary" style="font-size:0.8rem; color:var(--paper-dim); margin:0 0 14px;"></p>
+      <div id="dupes-list"></div>
+    </div>
+  </div>
+
   <!-- Tabs -->
   <div class="tabs" role="tablist" aria-label="Sections">
     <button role="tab" id="tab-library" aria-selected="true" aria-controls="panel-library" tabindex="0">
@@ -997,6 +1022,8 @@
       <p class="formats-note" style="margin-top:14px;">"Choose folder" adds every audio file inside a folder (and its subfolders) at once. It needs a fairly current version of iOS/iPadOS or desktop Safari — if it doesn't open a folder picker on your device, use "Choose files" and multi-select instead.</p>
     </div>
 
+    <p class="import-result-note mono" id="import-result-note" style="display:none;"></p>
+
     <div class="add-summary">
       <div>
         <p class="mono" id="add-summary-count">0 tracks in your library</p>
@@ -1016,6 +1043,13 @@
           <div class="desc">Total time listened, top tracks &amp; artists, this week's recap</div>
         </div>
         <button class="btn-ghost" id="btn-open-stats">View stats</button>
+      </div>
+      <div class="settings-row">
+        <div>
+          <div class="label">Duplicate tracks</div>
+          <div class="desc">Find tracks that appear more than once in your library</div>
+        </div>
+        <button class="btn-ghost" id="btn-open-dupes">Scan library</button>
       </div>
     </div>
 
@@ -1109,20 +1143,25 @@
     </div>
 
     <div class="settings-section">
-      <h2>Keyboard &amp; VoiceOver</h2>
-      <ul class="shortcuts-list">
-        <li><span>Play / pause</span> <kbd>Space</kbd></li>
-        <li><span>Seek back / forward 5s</span> <kbd>←</kbd> <kbd>→</kbd></li>
-        <li><span>Volume up / down</span> <kbd>↑</kbd> <kbd>↓</kbd></li>
-        <li><span>Favorite current track</span> <kbd>F</kbd></li>
-        <li><span>Toggle shuffle</span> <kbd>S</kbd></li>
-        <li><span>Cycle repeat</span> <kbd>R</kbd></li>
-        <li><span>Mute / unmute</span> <kbd>M</kbd></li>
-        <li><span>Switch tabs (when a tab is focused)</span> <kbd>←</kbd> <kbd>→</kbd></li>
-        <li><span>Activate item</span> <kbd>Enter</kbd></li>
-        <li><span>Close Now Playing / any dialog</span> <kbd>Esc</kbd></li>
-      </ul>
-      <p class="formats-note" style="margin-top:10px;">Every control is labeled for VoiceOver and other screen readers, and track changes, sound profile, speed, and timer updates are announced automatically.</p>
+      <div class="settings-row">
+        <h2 style="margin:0;">Keyboard &amp; VoiceOver</h2>
+        <button class="btn-ghost" id="btn-toggle-shortcuts" aria-pressed="true">Hide shortcuts</button>
+      </div>
+      <div id="shortcuts-wrap" style="margin-top:14px;">
+        <ul class="shortcuts-list">
+          <li><span>Play / pause</span> <kbd>Space</kbd></li>
+          <li><span>Seek back / forward 5s</span> <kbd>←</kbd> <kbd>→</kbd></li>
+          <li><span>Volume up / down</span> <kbd>↑</kbd> <kbd>↓</kbd></li>
+          <li><span>Favorite current track</span> <kbd>F</kbd></li>
+          <li><span>Toggle shuffle</span> <kbd>S</kbd></li>
+          <li><span>Cycle repeat</span> <kbd>R</kbd></li>
+          <li><span>Mute / unmute</span> <kbd>M</kbd></li>
+          <li><span>Switch tabs (when a tab is focused)</span> <kbd>←</kbd> <kbd>→</kbd></li>
+          <li><span>Activate item</span> <kbd>Enter</kbd></li>
+          <li><span>Close Now Playing / any dialog</span> <kbd>Esc</kbd></li>
+        </ul>
+        <p class="formats-note" style="margin-top:10px;">Every control is labeled for VoiceOver and other screen readers, and track changes, sound profile, speed, and timer updates are announced automatically.</p>
+      </div>
     </div>
 
     <div class="settings-section">
@@ -1220,6 +1259,7 @@
   const pickerDropzone = document.getElementById('picker-dropzone');
 
   const addSummaryCount = document.getElementById('add-summary-count');
+  const importResultNote = document.getElementById('import-result-note');
   const btnClearLibrary = document.getElementById('btn-clear-library');
   const btnResetAll = document.getElementById('btn-reset-all');
   const btnExportData = document.getElementById('btn-export-data');
@@ -1282,6 +1322,8 @@
   const statsOverlay = document.getElementById('stats-overlay');
   const statsDialog = document.getElementById('stats-dialog');
   const btnOpenStats = document.getElementById('btn-open-stats');
+  const btnToggleShortcuts = document.getElementById('btn-toggle-shortcuts');
+  const shortcutsWrap = document.getElementById('shortcuts-wrap');
   const btnCloseStats = document.getElementById('btn-close-stats');
   const statsTotalValue = document.getElementById('stats-total-value');
   const statsWeekValue = document.getElementById('stats-week-value');
@@ -1290,6 +1332,14 @@
   const statsTopTracks = document.getElementById('stats-top-tracks');
   const statsTopArtists = document.getElementById('stats-top-artists');
   const statsEmptyNote = document.getElementById('stats-empty-note');
+
+  const dupesOverlay = document.getElementById('dupes-overlay');
+  const dupesDialog = document.getElementById('dupes-dialog');
+  const btnOpenDupes = document.getElementById('btn-open-dupes');
+  const btnCloseDupes = document.getElementById('btn-close-dupes');
+  const dupesSummary = document.getElementById('dupes-summary');
+  const dupesList = document.getElementById('dupes-list');
+
 
   const toast = document.getElementById('toast');
   const toastMessage = document.getElementById('toast-message');
@@ -1358,6 +1408,7 @@
   const STORAGE_KEY_THEME = 'spool_theme_v1';
   const STORAGE_KEY_SPATIAL = 'spool_spatial_v1';
   const STORAGE_KEY_DAILY_LOG = 'spool_daily_log_v1';
+  const STORAGE_KEY_SHORTCUTS_VISIBLE = 'spool_shortcuts_visible_v1';
   let storageAvailable = false;
   try {
     const testKey = '__spool_test__';
@@ -1901,6 +1952,204 @@
     if (e.key === 'Escape') { e.preventDefault(); closeStats(); return; }
     if (e.key === 'Tab') {
       const focusable = getFocusable(statsDialog);
+      if (!focusable.length) return;
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+  });
+
+  // ---------- Duplicate detector ----------
+  function normalizeForDedupe(s){
+    return (s || '').toLowerCase().trim().replace(/\s+/g, ' ');
+  }
+
+  function dedupeKeyFor(t){
+    const title = normalizeForDedupe(t.tagTitle);
+    const artist = normalizeForDedupe(t.tagArtist);
+    if (title && artist) return 'ta:' + title + '|' + artist;
+    // No usable tags — fall back to the filename (minus extension), which
+    // is the next-best signal that two entries are really the same track.
+    const base = normalizeForDedupe((t.originalFilename || t.name || '').replace(/\.[^/.]+$/, ''));
+    return 'fn:' + base;
+  }
+
+  function findDuplicateGroups(){
+    const map = new Map();
+    tracks.forEach((t, i) => {
+      const key = dedupeKeyFor(t);
+      if (!key || key === 'ta:|' || key === 'fn:') return;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push({ ...t, originalIndex: i });
+    });
+    return Array.from(map.values())
+      .filter(g => g.length > 1)
+      .sort((a, b) => b.length - a.length);
+  }
+
+  function pickRecommendedKeep(group){
+    // Prefer a favorited copy, then the largest file (usually the better
+    // encode), then whichever was added first.
+    let best = group[0];
+    for (const t of group) {
+      if (t.favorite && !best.favorite) { best = t; continue; }
+      if (!!t.favorite !== !!best.favorite) continue;
+      if ((t.size || 0) > (best.size || 0)) { best = t; continue; }
+      if ((t.size || 0) === (best.size || 0) && (t.addedAt || 0) < (best.addedAt || 0)) { best = t; }
+    }
+    return best;
+  }
+
+  // Shared removal path used by the duplicate detector — also correctly
+  // recomputes currentIndex when the removed tracks sit ahead of (but
+  // aren't) the currently playing one, since array positions shift.
+  function removeTrackIds(idsToRemove){
+    if (!idsToRemove || !idsToRemove.size) return;
+    const currentTrackId = currentIndex !== -1 ? tracks[currentIndex].id : null;
+    const removingCurrent = currentTrackId !== null && idsToRemove.has(currentTrackId);
+    tracks.forEach(t => {
+      if (idsToRemove.has(t.id)) { URL.revokeObjectURL(t.url); if (t.artworkUrl) URL.revokeObjectURL(t.artworkUrl); deleteTrackBlob(t.id); }
+    });
+    tracks = tracks.filter(t => !idsToRemove.has(t.id));
+    if (removingCurrent) {
+      audio.pause(); audioB.pause(); bgAudio.pause();
+      isBackgroundHandoff = false; isCrossfading = false;
+      currentIndex = -1;
+      trackTitle.textContent = 'No track selected';
+      trackSub.textContent = '—';
+      miniTrackTitle.textContent = 'No track selected';
+      miniTrackSub.textContent = 'Tap to open Now Playing';
+      updatePlayButton(false);
+    } else if (currentTrackId !== null) {
+      currentIndex = tracks.findIndex(t => t.id === currentTrackId);
+    }
+    if (tracks.length === 0) setPlayerActive(false);
+    persistNow();
+    refreshActiveLibraryView();
+    if (!npOverlay.hidden) renderUpNext();
+    if (!queueOverlay.hidden) renderQueue();
+  }
+
+  function renderDupesList(){
+    const groups = findDuplicateGroups();
+    dupesList.innerHTML = '';
+    if (!groups.length) {
+      dupesSummary.textContent = 'No duplicates found.';
+      const empty = document.createElement('div');
+      empty.className = 'stats-list-empty';
+      empty.textContent = tracks.length ? 'Your library looks clean — no matching tracks found.' : 'Add some tracks first.';
+      dupesList.appendChild(empty);
+      return;
+    }
+    const extraCount = groups.reduce((sum, g) => sum + (g.length - 1), 0);
+    dupesSummary.textContent = groups.length + (groups.length === 1 ? ' set of duplicates' : ' sets of duplicates') +
+      ' found — ' + extraCount + (extraCount === 1 ? ' extra copy' : ' extra copies') + ' you could remove.';
+
+    groups.forEach((group, gi) => {
+      const card = document.createElement('div');
+      card.className = 'dupe-group';
+
+      const header = document.createElement('div');
+      header.className = 'dupe-group-header';
+      const title = document.createElement('div');
+      title.className = 'dupe-group-title';
+      const first = group[0];
+      title.textContent = (first.tagTitle || first.name) + (first.tagArtist ? ' — ' + first.tagArtist : '');
+      const sub = document.createElement('div');
+      sub.className = 'dupe-group-sub';
+      sub.textContent = group.length + ' copies';
+      header.appendChild(title); header.appendChild(sub);
+      card.appendChild(header);
+
+      let recommended = pickRecommendedKeep(group);
+      const radioName = 'dupe-keep-' + gi;
+      group.forEach((t, ti) => {
+        const row = document.createElement('div');
+        row.className = 'dupe-row';
+
+        const radio = document.createElement('input');
+        radio.type = 'radio';
+        radio.name = radioName;
+        radio.id = radioName + '-' + ti;
+        radio.checked = t.id === recommended.id;
+        radio.setAttribute('aria-label', 'Keep ' + (t.tagTitle || t.name));
+        radio.addEventListener('change', () => {
+          recommended = t;
+          card.querySelectorAll('.dupe-row-keep-badge').forEach(b => b.remove());
+          const badge = document.createElement('span');
+          badge.className = 'dupe-row-keep-badge';
+          badge.textContent = 'Keep';
+          row.insertBefore(badge, row.lastChild);
+        });
+
+        const text = document.createElement('label');
+        text.className = 'dupe-row-text';
+        text.setAttribute('for', radio.id);
+        const name = document.createElement('div');
+        name.className = 'dupe-row-name';
+        name.textContent = t.tagTitle || t.name;
+        const subline = document.createElement('div');
+        subline.className = 'dupe-row-sub';
+        subline.textContent = [
+          (t.format || '').toUpperCase(),
+          t.duration ? formatTime(t.duration) : null,
+          t.size ? formatBytes(t.size) : null,
+          t.addedAt ? 'added ' + formatDate(t.addedAt) : null,
+        ].filter(Boolean).join(' · ');
+        text.appendChild(name); text.appendChild(subline);
+
+        row.appendChild(radio);
+        row.appendChild(text);
+        if (t.id === recommended.id) {
+          const badge = document.createElement('span');
+          badge.className = 'dupe-row-keep-badge';
+          badge.textContent = 'Keep';
+          row.appendChild(badge);
+        }
+        card.appendChild(row);
+      });
+
+      const actions = document.createElement('div');
+      actions.className = 'dupe-group-actions';
+      const removeBtn = document.createElement('button');
+      removeBtn.className = 'btn-danger-ghost';
+      removeBtn.textContent = 'Remove ' + (group.length - 1) + (group.length - 1 === 1 ? ' duplicate' : ' duplicates') + ' from this set';
+      removeBtn.addEventListener('click', () => {
+        const keepId = card.querySelector('input[type="radio"]:checked')?.id;
+        const keepIndex = keepId ? parseInt(keepId.slice(radioName.length + 1), 10) : -1;
+        const keepTrack = keepIndex >= 0 ? group[keepIndex] : recommended;
+        const idsToRemove = new Set(group.filter(t => t.id !== keepTrack.id).map(t => t.id));
+        removeTrackIds(idsToRemove);
+        announce('Removed ' + idsToRemove.size + (idsToRemove.size === 1 ? ' duplicate' : ' duplicates') + ', kept "' + (keepTrack.tagTitle || keepTrack.name) + '"');
+        renderDupesList();
+      });
+      actions.appendChild(removeBtn);
+      card.appendChild(actions);
+
+      dupesList.appendChild(card);
+    });
+  }
+
+  let dupesTriggerEl = null;
+  function openDupes(){
+    dupesTriggerEl = document.activeElement;
+    renderDupesList();
+    dupesOverlay.hidden = false;
+    const focusable = getFocusable(dupesDialog);
+    (focusable[0] || dupesDialog).focus();
+  }
+  function closeDupes(){
+    dupesOverlay.hidden = true;
+    if (dupesTriggerEl && typeof dupesTriggerEl.focus === 'function') dupesTriggerEl.focus();
+    else btnOpenDupes.focus();
+  }
+  btnOpenDupes.addEventListener('click', openDupes);
+  btnCloseDupes.addEventListener('click', closeDupes);
+  dupesOverlay.addEventListener('click', (e) => { if (e.target === dupesOverlay) closeDupes(); });
+  dupesDialog.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); closeDupes(); return; }
+    if (e.key === 'Tab') {
+      const focusable = getFocusable(dupesDialog);
       if (!focusable.length) return;
       const first = focusable[0], last = focusable[focusable.length - 1];
       if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
@@ -4335,13 +4584,41 @@
   }
 
   // ---------- File input ----------
+  function existingFileKey(originalFilename, size){
+    return normalizeForDedupe((originalFilename || '').replace(/\.[^/.]+$/, '')) + '|' + (size || 0);
+  }
+
+  function showImportResult(msg){
+    importResultNote.textContent = msg;
+    importResultNote.style.display = 'block';
+  }
+
   function handleFiles(fileList){
     const allFiles = Array.from(fileList || []);
-    const files = allFiles.filter(f => !f.type || f.type.startsWith('audio') || /\.(mp3|flac|m4a|aac|wav|ogg|opus|webm)$/i.test(f.name));
-    if (!files.length) {
+    const audioFiles = allFiles.filter(f => !f.type || f.type.startsWith('audio') || /\.(mp3|flac|m4a|aac|wav|ogg|opus|webm)$/i.test(f.name));
+    if (!audioFiles.length) {
       if (allFiles.length) {
         announce('No supported audio files found in what you selected (checked ' + allFiles.length + (allFiles.length === 1 ? ' item' : ' items') + '). Supported formats: MP3, FLAC, M4A/AAC, WAV, OGG.');
       }
+      return;
+    }
+    // Skip anything that's already in the library (matched by filename +
+    // file size — tags aren't parsed yet at this point, so this is the most
+    // reliable check available immediately, and it's exactly what catches
+    // re-importing the same folder). Also dedupes within this same batch,
+    // in case overlapping folders were picked.
+    const existingKeys = new Set(tracks.map(t => existingFileKey(t.originalFilename, t.size)));
+    let skippedCount = 0;
+    const files = audioFiles.filter(f => {
+      const key = existingFileKey(f.name, f.size);
+      if (existingKeys.has(key)) { skippedCount++; return false; }
+      existingKeys.add(key);
+      return true;
+    });
+    if (!files.length) {
+      const msg = skippedCount + (skippedCount === 1 ? ' track was' : ' tracks were') + ' already in your library — nothing new to add.';
+      announce(msg);
+      showImportResult(msg);
       return;
     }
     const wasEmpty = tracks.length === 0;
@@ -4389,9 +4666,13 @@
     refreshActiveLibraryView();
     if (wasEmpty) {
       loadTrack(0, false);
-      announce(tracks.length + ' tracks added to your library. First track ready to play.' + (matchedCount ? ' Restored saved details for ' + matchedCount + '.' : ''));
+      const msg = tracks.length + ' tracks added to your library. First track ready to play.' + (matchedCount ? ' Restored saved details for ' + matchedCount + '.' : '') + (skippedCount ? ' Skipped ' + skippedCount + (skippedCount === 1 ? ' track' : ' tracks') + ' already in your library.' : '');
+      announce(msg);
+      if (skippedCount) showImportResult(msg);
     } else {
-      announce(newTracks.length + ' more tracks added to your library.' + (matchedCount ? ' Restored saved details for ' + matchedCount + '.' : ''));
+      const msg = newTracks.length + ' more tracks added to your library.' + (matchedCount ? ' Restored saved details for ' + matchedCount + '.' : '') + (skippedCount ? ' Skipped ' + skippedCount + (skippedCount === 1 ? ' duplicate' : ' duplicates') + ' already in your library.' : '');
+      announce(msg);
+      if (skippedCount) showImportResult(msg);
     }
   }
 
@@ -4840,6 +5121,15 @@
       announce(theme === 'light' ? 'Light theme on' : 'Dark theme on');
     });
   });
+  btnToggleShortcuts.addEventListener('click', () => {
+    const nowVisible = btnToggleShortcuts.getAttribute('aria-pressed') !== 'true';
+    btnToggleShortcuts.setAttribute('aria-pressed', nowVisible ? 'true' : 'false');
+    btnToggleShortcuts.textContent = nowVisible ? 'Hide shortcuts' : 'Show shortcuts';
+    shortcutsWrap.hidden = !nowVisible;
+    if (storageAvailable) { try { window.localStorage.setItem(STORAGE_KEY_SHORTCUTS_VISIBLE, nowVisible ? '1' : '0'); } catch (e) {} }
+    announce(nowVisible ? 'Keyboard shortcuts shown' : 'Keyboard shortcuts hidden');
+  });
+
   if (storageAvailable) {
     try {
       const savedTheme = window.localStorage.getItem(STORAGE_KEY_THEME);
@@ -4850,6 +5140,14 @@
       if (savedSpatial === '3d' || savedSpatial === '8d') {
         currentSpatialMode = savedSpatial; // applied by ensureAudioGraph() once playback starts
         spatialButtons.forEach(b => b.setAttribute('aria-pressed', b.getAttribute('data-spatial') === savedSpatial ? 'true' : 'false'));
+      }
+    } catch (e) {}
+    try {
+      const savedShortcutsVisible = window.localStorage.getItem(STORAGE_KEY_SHORTCUTS_VISIBLE);
+      if (savedShortcutsVisible === '0') {
+        btnToggleShortcuts.setAttribute('aria-pressed', 'false');
+        btnToggleShortcuts.textContent = 'Show shortcuts';
+        shortcutsWrap.hidden = true;
       }
     } catch (e) {}
   }
