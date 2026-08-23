@@ -1128,7 +1128,7 @@
           <button class="pill" data-spatial="8d" aria-pressed="false">8D</button>
         </div>
       </fieldset>
-      <p class="formats-note" style="margin-top:10px;">8D uses real binaural spatialization to continuously rotate the sound around your head — front, side, back, side, and around again. 3D uses the same spatial audio technology but for a subtler sense of depth and position, gently drifting in distance and height rather than spinning. Both need headphones to work.</p>
+      <p class="formats-note" style="margin-top:10px;">8D uses real binaural spatialization to continuously rotate the sound around your head — front, side, back, side, and around again. 3D adds a small delay to one channel, a classic trick that subtly widens the stereo image and makes the mix feel more "live" in front of you — no movement, just a wider, more open feel. Both need headphones to work.</p>
     </div>
 
     <div class="settings-section">
@@ -2179,7 +2179,7 @@
   bgAudio.preload = 'auto';
   let isBackgroundHandoff = false;
 
-  let audioCtx, chainA, chainB, panner3D, dryGain, pannerOutGain, orbitLFO, orbitDepthX, orbitDepthZ, orbitQuarterDelay, depthLFOx, depthLFOy, depthLFOz, depthGainX, depthGainY, depthGainZ, spatialFallbackTimer, masterGain;
+  let audioCtx, chainA, chainB, panner3D, dryGain, pannerOutGain, orbitLFO, orbitDepthX, orbitDepthZ, orbitQuarterDelay, delaySplitter, delayMerger, channelDelay, delayEffectGain, spatialFallbackTimer, masterGain;
   let audioBPrimed = false;
   let bgAudioPrimed = false;
   let currentQualityName = 'standard';
@@ -2205,25 +2205,21 @@
     // their own gain nodes off the same upstream signal, so switching
     // between them is just a gain crossfade — never a graph rewire, never a
     // disconnect.
-    //  - Normal: a plain dry path, no panner at all. Untouched by anything
-    //    below it.
-    //  - 8D and 3D SHARE one real binaural panner (PannerNode, panningModel:
-    //    'HRTF' — genuine spatial audio, not stereo left/right panning) but
-    //    drive its position with different motion:
-    //      8D = a full, fairly fast circle in the horizontal plane around
-    //           the listener's head (front -> right -> back -> left ->
-    //           front) — the classic "sound rotating around you" effect.
-    //      3D = a slow, gentle wander in depth (near/far) and a little
-    //           height, using three independently-timed oscillators so the
-    //           path doesn't trace a simple repeating circle — a sense of
-    //           the sound having real position and space around it, not a
-    //           showy spin.
+    //  - Normal: a plain dry path, no processing at all.
+    //  - 8D: a real binaural panner (PannerNode, panningModel: 'HRTF')
+    //    orbiting in a circle around the listener's head — the "sound
+    //    rotating around you" effect.
+    //  - 3D: NOT positional/spatial audio at all — a small delay on just
+    //    one stereo channel (a classic "Haas effect" trick used by
+    //    real-world "3D audio" tools), which subtly widens the stereo
+    //    image and makes the mix feel more "live"/in front of you, without
+    //    any movement. Deliberately much simpler than 8D.
     panner3D = audioCtx.createPanner();
     panner3D.panningModel = 'HRTF';
     panner3D.distanceModel = 'linear';
     panner3D.refDistance = 1;
     panner3D.maxDistance = 10;
-    panner3D.rolloffFactor = 0; // keep volume constant as position moves — only position should change
+    panner3D.rolloffFactor = 0; // keep volume constant through the orbit — only position should move
     try {
       if (audioCtx.listener.forwardX) {
         audioCtx.listener.forwardX.value = 0; audioCtx.listener.forwardY.value = 0; audioCtx.listener.forwardZ.value = -1;
@@ -2237,69 +2233,58 @@
 
     dryGain = audioCtx.createGain(); dryGain.gain.value = 1;
     pannerOutGain = audioCtx.createGain(); pannerOutGain.gain.value = 0;
+    delayEffectGain = audioCtx.createGain(); delayEffectGain.gain.value = 0;
 
-    chainA.gain.connect(dryGain);
+    // 8D: one oscillator plus a quarter-period-delayed copy of itself (a
+    // cheap sine/cosine pair) drives positionX/positionZ so the source
+    // traces a circle around the listener instead of sliding left-right.
     chainA.gain.connect(panner3D);
-    chainB.gain.connect(dryGain);
     chainB.gain.connect(panner3D);
     panner3D.connect(pannerOutGain);
-
-    // 8D motion: one oscillator plus a quarter-period-delayed copy of
-    // itself (a cheap sine/cosine pair) drives positionX/positionZ so the
-    // source traces a circle around the listener instead of just sliding
-    // left-right.
     orbitLFO = audioCtx.createOscillator(); orbitLFO.type = 'sine'; orbitLFO.frequency.value = 0.1;
-    orbitDepthX = audioCtx.createGain(); orbitDepthX.gain.value = 0;
-    orbitDepthZ = audioCtx.createGain(); orbitDepthZ.gain.value = 0;
+    orbitDepthX = audioCtx.createGain(); orbitDepthX.gain.value = 2.4;
+    orbitDepthZ = audioCtx.createGain(); orbitDepthZ.gain.value = 2.4;
     orbitQuarterDelay = audioCtx.createDelay(5);
     orbitQuarterDelay.delayTime.value = 2.5;
     orbitLFO.connect(orbitDepthX);
     orbitLFO.connect(orbitQuarterDelay);
     orbitQuarterDelay.connect(orbitDepthZ);
-
-    // 3D motion: three independently-timed oscillators for X/Y/Z so the
-    // path wanders through space rather than tracing a clean repeating
-    // shape — genuine depth and position, not a rotation.
-    depthLFOx = audioCtx.createOscillator(); depthLFOx.type = 'sine'; depthLFOx.frequency.value = 0.035;
-    depthLFOy = audioCtx.createOscillator(); depthLFOy.type = 'sine'; depthLFOy.frequency.value = 0.023;
-    depthLFOz = audioCtx.createOscillator(); depthLFOz.type = 'sine'; depthLFOz.frequency.value = 0.017;
-    depthGainX = audioCtx.createGain(); depthGainX.gain.value = 0;
-    depthGainY = audioCtx.createGain(); depthGainY.gain.value = 0;
-    depthGainZ = audioCtx.createGain(); depthGainZ.gain.value = 0;
-    depthLFOx.connect(depthGainX);
-    depthLFOy.connect(depthGainY);
-    depthLFOz.connect(depthGainZ);
-
     if (panner3D.positionX) {
       orbitDepthX.connect(panner3D.positionX);
       orbitDepthZ.connect(panner3D.positionZ);
-      depthGainX.connect(panner3D.positionX);
-      depthGainY.connect(panner3D.positionY);
-      depthGainZ.connect(panner3D.positionZ);
     } else {
       // Very old engines only expose PannerNode.setPosition() rather than
       // AudioParam positionX/Y/Z — fall back to nudging it by hand.
       let fallbackPhase = 0;
       spatialFallbackTimer = setInterval(() => {
-        if (!panner3D.setPosition) return;
+        if (currentSpatialMode !== '8d' || !panner3D.setPosition) return;
         fallbackPhase += 2 * Math.PI * 0.1 * 0.1;
-        if (currentSpatialMode === '8d') {
-          panner3D.setPosition(Math.sin(fallbackPhase * 2.86) * 2.4, 0, -Math.cos(fallbackPhase * 2.86) * 2.4);
-        } else if (currentSpatialMode === '3d') {
-          panner3D.setPosition(
-            Math.sin(fallbackPhase * 1) * 0.9,
-            Math.sin(fallbackPhase * 0.66) * 0.4,
-            -1.8 + Math.sin(fallbackPhase * 0.49) * 0.7
-          );
-        }
+        panner3D.setPosition(Math.sin(fallbackPhase * 2.86) * 2.4, 0, -Math.cos(fallbackPhase * 2.86) * 2.4);
       }, 100);
     }
     orbitLFO.start();
-    depthLFOx.start(); depthLFOy.start(); depthLFOz.start();
+
+    // 3D: split into L/R, delay the right channel by a small fixed amount,
+    // recombine — a static widening effect, not movement.
+    delaySplitter = audioCtx.createChannelSplitter(2);
+    delayMerger = audioCtx.createChannelMerger(2);
+    channelDelay = audioCtx.createDelay(1);
+    channelDelay.delayTime.value = 0.02; // 20ms
+    chainA.gain.connect(delaySplitter);
+    chainB.gain.connect(delaySplitter);
+    delaySplitter.connect(delayMerger, 0, 0); // left channel passes straight through
+    delaySplitter.connect(channelDelay, 1, 0); // right channel -> delay
+    channelDelay.connect(delayMerger, 0, 1); // delayed signal -> right channel of output
+    delayMerger.connect(delayEffectGain);
+
+    // Normal: plain dry path, no processing.
+    chainA.gain.connect(dryGain);
+    chainB.gain.connect(dryGain);
 
     masterGain = audioCtx.createGain(); masterGain.gain.value = 1;
     dryGain.connect(masterGain);
     pannerOutGain.connect(masterGain);
+    delayEffectGain.connect(masterGain);
     masterGain.connect(audioCtx.destination);
 
     applyQuality(currentQualityName);
@@ -2381,26 +2366,25 @@
   // ---------- Spatial audio (Normal / 3D / 8D) ----------
   const spatialPresets = {
     normal: { mode: 'none' },
-    // 8D: a full, fairly fast circle around the listener's head — the
-    // classic "sound rotating around you" effect, done with real binaural
-    // panning instead of stereo left/right panning.
+    // 8D: a full, fairly fast circle around the listener's head — real
+    // binaural panning, not stereo left/right panning.
     '8d':   { mode: '8d', freq: 0.1, radius: 2.4 },
-    // 3D: a slow multi-axis wander (depth + a little height) — a sense of
-    // real position and space, not a showy spin.
-    '3d':   { mode: '3d', freqX: 0.035, freqY: 0.023, freqZ: 0.017, ampX: 0.9, ampY: 0.4, ampZ: 0.7, baseZ: -1.8 },
+    // 3D: a small fixed delay on one channel — a stereo-widening "Haas
+    // effect" trick, not positional audio. No movement at all.
+    '3d':   { mode: '3d', delaySeconds: 0.02 },
   };
   function applySpatialMode(name){
     currentSpatialMode = spatialPresets[name] ? name : 'normal';
-    if (!orbitLFO || !depthLFOx) return;
+    if (!orbitLFO || !channelDelay) return;
     const p = spatialPresets[currentSpatialMode];
     const now = audioCtx.currentTime;
-    const isPannerActive = p.mode === '8d' || p.mode === '3d';
 
-    // Normal plays through a plain dry path with no panner touching it at
-    // all; 8D and 3D share the HRTF panner, so this is the only gain pair
-    // that decides whether anything is audible.
-    dryGain.gain.setTargetAtTime(isPannerActive ? 0 : 1, now, 0.3);
-    pannerOutGain.gain.setTargetAtTime(isPannerActive ? 1 : 0, now, 0.3);
+    // Exactly one of these three paths is ever audible at a time — Normal
+    // (dry), 8D (HRTF orbit), or 3D (channel delay) — so switching modes
+    // can never land on "all muted" or "two competing at once".
+    dryGain.gain.setTargetAtTime(p.mode === 'none' ? 1 : 0, now, 0.3);
+    pannerOutGain.gain.setTargetAtTime(p.mode === '8d' ? 1 : 0, now, 0.3);
+    delayEffectGain.gain.setTargetAtTime(p.mode === '3d' ? 1 : 0, now, 0.3);
 
     // 8D motion
     const orbitActive = p.mode === '8d';
@@ -2410,25 +2394,13 @@
     orbitQuarterDelay.delayTime.setTargetAtTime(Math.min(4.9, (1 / Math.max(orbitFreq, 0.01)) / 4), now, 0.01);
     orbitDepthX.gain.setTargetAtTime(orbitRadius, now, 0.25);
     orbitDepthZ.gain.setTargetAtTime(orbitRadius, now, 0.25);
-
-    // 3D motion
-    const depthActive = p.mode === '3d';
-    depthLFOx.frequency.setTargetAtTime(depthActive ? p.freqX : 0.035, now, 0.25);
-    depthLFOy.frequency.setTargetAtTime(depthActive ? p.freqY : 0.023, now, 0.25);
-    depthLFOz.frequency.setTargetAtTime(depthActive ? p.freqZ : 0.017, now, 0.25);
-    depthGainX.gain.setTargetAtTime(depthActive ? p.ampX : 0, now, 0.25);
-    depthGainY.gain.setTargetAtTime(depthActive ? p.ampY : 0, now, 0.25);
-    depthGainZ.gain.setTargetAtTime(depthActive ? p.ampZ : 0, now, 0.25);
-
-    // Baseline (intrinsic) position — 8D orbits centered on the listener
-    // (0,0,0); 3D wanders around a point a little in front. Only one of
-    // these two motion sources is ever contributing (the other's gain is
-    // 0), so setting the baseline per-mode doesn't fight the inactive one.
-    if (panner3D.positionX) {
+    if (!orbitActive && panner3D.positionX) {
       panner3D.positionX.setTargetAtTime(0, now, 0.25);
-      panner3D.positionY.setTargetAtTime(0, now, 0.25);
-      panner3D.positionZ.setTargetAtTime(depthActive ? p.baseZ : 0, now, 0.25);
+      panner3D.positionZ.setTargetAtTime(0, now, 0.25);
     }
+
+    // 3D channel delay — fixed, no automation needed beyond the gain above.
+    channelDelay.delayTime.setTargetAtTime(p.mode === '3d' ? p.delaySeconds : 0.02, now, 0.05);
   }
 
   // ---------- Lightweight per-track tempo/loudness analysis ----------
