@@ -2944,18 +2944,14 @@
       if (wasBg) setTimeout(handoffToBackground, 60);
     });
     safeSetHandler('stop', () => pauseAudio());
-    safeSetHandler('seekto', (details) => {
-      const el = isBackgroundHandoff ? bgAudio : audio;
-      if (!el.duration) return;
-      if (details.fastSeek && 'fastSeek' in el) { el.fastSeek(details.seekTime); return; }
-      el.currentTime = Math.min(details.seekTime, el.duration);
-      updateMediaSessionPosition();
-    });
-    // Deliberately NOT registering 'seekbackward'/'seekforward': on iOS,
-    // having those handlers set makes the lock screen show generic +/-10s
-    // skip buttons INSTEAD OF previous/next track buttons. Leaving them
-    // unset makes the OS fall back to previoustrack/nexttrack, which is
-    // what we actually want on the lock screen.
+    // Deliberately NOT registering 'seekbackward'/'seekforward'/'seekto':
+    // on iOS, having ANY seek-related handler set (even just seekto alone)
+    // can make the lock screen show generic +/-10s skip buttons INSTEAD OF
+    // previous/next track buttons. Leaving all three unset makes the OS
+    // fall back to previoustrack/nexttrack, which is what we actually want
+    // on the lock screen — the trade-off is losing the lock-screen scrubber
+    // (dragging the position bar), which matters less than the track
+    // buttons actually being track buttons.
   }
 
   // ---------- Crossfade transitions ----------
