@@ -894,6 +894,24 @@
     </div>
   </div>
 
+  <div class="sheet-overlay" id="library-menu-overlay" hidden>
+    <div class="sheet-dialog" id="library-menu-dialog" role="dialog" aria-modal="true" aria-labelledby="library-menu-heading">
+      <div class="sheet-header">
+        <button class="sheet-close" id="btn-close-library-menu" aria-label="Close">✕</button>
+        <h2 id="library-menu-heading">Library Options</h2>
+        <span class="sheet-spacer" aria-hidden="true"></span>
+      </div>
+      <ul class="action-list">
+        <li><button id="lm-select">Select tracks…</button></li>
+        <li><button id="lm-stats">Listening stats</button></li>
+        <li><button id="lm-dupes">Find duplicate tracks</button></li>
+        <li><button id="lm-export">Export favorites &amp; playlists</button></li>
+        <li><button id="lm-import">Import backup</button></li>
+        <li><button id="lm-clear" class="danger">Clear library…</button></li>
+      </ul>
+    </div>
+  </div>
+
   <!-- Tabs -->
   <div class="tabs" role="tablist" aria-label="Sections">
     <button role="tab" id="tab-library" aria-selected="true" aria-controls="panel-library" tabindex="0">
@@ -975,6 +993,7 @@
               Shuffle
             </button>
             <button class="btn-ghost" id="btn-jump-now-playing" style="padding:6px 12px; font-size:0.76rem; display:none;">Jump to playing</button>
+            <button class="li-more" id="btn-library-menu" aria-label="More library options" style="flex-shrink:0;">⋯</button>
             <span class="playlist-count mono" id="playlist-count">0 tracks</span>
           </span>
         </div>
@@ -1339,6 +1358,18 @@
   const btnCloseDupes = document.getElementById('btn-close-dupes');
   const dupesSummary = document.getElementById('dupes-summary');
   const dupesList = document.getElementById('dupes-list');
+
+  const libraryMenuOverlay = document.getElementById('library-menu-overlay');
+  const libraryMenuDialog = document.getElementById('library-menu-dialog');
+  const btnLibraryMenu = document.getElementById('btn-library-menu');
+  const btnCloseLibraryMenu = document.getElementById('btn-close-library-menu');
+  const lmSelect = document.getElementById('lm-select');
+  const lmStats = document.getElementById('lm-stats');
+  const lmDupes = document.getElementById('lm-dupes');
+  const lmExport = document.getElementById('lm-export');
+  const lmImport = document.getElementById('lm-import');
+  const lmClear = document.getElementById('lm-clear');
+
 
 
   const toast = document.getElementById('toast');
@@ -2155,6 +2186,53 @@
       if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
       else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
     }
+  });
+
+  // ---------- Library "More options" menu ----------
+  // A library-wide counterpart to each track's "⋯" menu — surfaces a few
+  // actions that otherwise only live buried in Settings, right where
+  // someone's already looking at their library.
+  let libraryMenuTriggerEl = null;
+  function openLibraryMenu(){
+    libraryMenuTriggerEl = document.activeElement;
+    lmSelect.textContent = selectionMode ? 'Cancel selecting' : 'Select tracks…';
+    libraryMenuOverlay.hidden = false;
+    const focusable = getFocusable(libraryMenuDialog);
+    (focusable[0] || libraryMenuDialog).focus();
+  }
+  function closeLibraryMenu(){
+    libraryMenuOverlay.hidden = true;
+    if (libraryMenuTriggerEl && typeof libraryMenuTriggerEl.focus === 'function') libraryMenuTriggerEl.focus();
+    else btnLibraryMenu.focus();
+  }
+  btnLibraryMenu.addEventListener('click', openLibraryMenu);
+  btnCloseLibraryMenu.addEventListener('click', closeLibraryMenu);
+  libraryMenuOverlay.addEventListener('click', (e) => { if (e.target === libraryMenuOverlay) closeLibraryMenu(); });
+  libraryMenuDialog.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); closeLibraryMenu(); return; }
+    if (e.key === 'Tab') {
+      const focusable = getFocusable(libraryMenuDialog);
+      if (!focusable.length) return;
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+  });
+
+  lmSelect.addEventListener('click', () => { closeLibraryMenu(); btnToggleSelect.click(); });
+  lmStats.addEventListener('click', () => { closeLibraryMenu(); openStats(); });
+  lmDupes.addEventListener('click', () => { closeLibraryMenu(); openDupes(); });
+  lmExport.addEventListener('click', () => { closeLibraryMenu(); btnExportData.click(); });
+  lmImport.addEventListener('click', () => { closeLibraryMenu(); importDataInput.click(); });
+  lmClear.addEventListener('click', () => {
+    closeLibraryMenu();
+    // The actual two-tap confirmation for this destructive action already
+    // lives on its own button in Settings — send people there instead of
+    // duplicating that confirm flow in a second place.
+    selectTab('tab-settings');
+    btnClearLibrary.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    btnClearLibrary.focus();
+    announce('Tap "Clear library" below to remove your whole library.');
   });
 
   // ---------- Web Audio graph: EQ, spatial audio, dual-deck crossfade ----------
