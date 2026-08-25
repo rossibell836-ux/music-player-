@@ -4278,6 +4278,34 @@
   let playAttemptInProgress = false;
   function playAudio(){
     if (isBackgroundHandoff) {
+      // If the track reached its natural end while backgrounded, the
+      // background element's own 'ended' handler was supposed to advance
+      // to the next track automatically — but iOS heavily restricts
+      // background JS execution, so that may never have gotten a chance to
+      // run, leaving it sitting on a finished track. Calling .play() on an
+      // already-ended element does nothing, which is exactly why Magic Tap
+      // (or the lock screen's play button) can look like it's not working
+      // after being away a while. Detect that and advance manually — we
+      // have real execution time now, from this actual gesture.
+      if (bgAudio.ended || (bgAudio.duration && isFinite(bgAudio.duration) && bgAudio.currentTime >= bgAudio.duration - 0.25)) {
+        const next = advanceIndex(true);
+        if (next !== null && tracks[next]) {
+          currentIndex = next;
+          const t = tracks[currentIndex];
+          t.lastPlayedAt = Date.now();
+          t.playCount = (t.playCount || 0) + 1;
+          markShufflePlayed(t);
+          bgAudio.src = t.url;
+          bgAudio.currentTime = 0;
+          bgAudio.play().then(() => {
+            updatePlayButton(true);
+            updateMediaSessionMetadata();
+            getTrackMetadata(t);
+            persistNow();
+          }).catch(() => announce('Could not play this track.'));
+          return;
+        }
+      }
       // Playback is currently running through the background-safe element;
       // keep operating on that one rather than waking the Web Audio graph.
       bgAudio.play().then(() => { updatePlayButton(true); persistNow(); }).catch(() => announce('Could not play this track.'));
@@ -4294,11 +4322,14 @@
     // Audio route changes (like headphones disconnecting, which iOS pauses
     // playback for automatically) and long backgrounding can both leave the
     // AudioContext suspended in a way a single resume()+play() doesn't
-    // always clear on the first try. Retry a few times with a short delay,
-    // and if that still doesn't take, fall back to fully reloading the
-    // track — sometimes a route-change interruption leaves the element's
-    // own decode pipeline stuck in a way only a fresh load() clears, even
-    // once the AudioContext itself reports as running again.
+    // always clear on the first try. Retry with a short delay, and if that
+    // still doesn't take, fall back to fully reloading the track — a
+    // route-change interruption can leave the element's own decode
+    // pipeline stuck in a way only a fresh load() clears, even once the
+    // AudioContext itself reports as running again. Kept intentionally
+    // short (one quick retry, not several) so a normal tap that just needs
+    // the more reliable reload path doesn't sit through multiple rounds of
+    // a plain retry that was unlikely to work anyway first.
     const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     function attempt(tries){
       const resumeIfNeeded = audioCtx.state === 'suspended' ? audioCtx.resume().catch(() => {}) : Promise.resolve();
@@ -4306,8 +4337,8 @@
         if (tries === 0) { primeAudioB(); primeBgAudio(); }
         return audio.play();
       }).catch((err) => {
-        if (tries >= 3) throw err;
-        return wait(150 * (tries + 1)).then(() => attempt(tries + 1));
+        if (tries >= 1) throw err;
+        return wait(100).then(() => attempt(tries + 1));
       });
     }
     function hardReloadAndPlay(){
@@ -4316,13 +4347,27 @@
       const resumeIfNeeded = audioCtx.state === 'suspended' ? audioCtx.resume().catch(() => {}) : Promise.resolve();
       return resumeIfNeeded.then(() => new Promise((resolve, reject) => {
         const savedTime = audio.currentTime;
+        let settled = false;
+        const timeoutId = setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          audio.removeEventListener('loadedmetadata', onReady);
+          audio.removeEventListener('error', onError);
+          reject(new Error('reload timed out'));
+        }, 4000); // never hang indefinitely if the file never fires loadedmetadata
         const onReady = () => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timeoutId);
           audio.removeEventListener('loadedmetadata', onReady);
           audio.removeEventListener('error', onError);
           audio.currentTime = savedTime;
           audio.play().then(resolve).catch(reject);
         };
         const onError = () => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timeoutId);
           audio.removeEventListener('loadedmetadata', onReady);
           audio.removeEventListener('error', onError);
           reject(new Error('reload failed'));
