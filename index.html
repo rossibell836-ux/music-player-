@@ -1,8 +1,8 @@
-<!DOCTYPE html> <html lang="en"> <head>   <meta charset="UTF-8">   <meta name="viewport" content="width=device-width, initial-scale=1.0">   <title>Spool - Local Audio Player</title>   <style>     :root {       --bg-color: #0f0f11;       --card-bg: #18181b;       --accent: #4ade80;       --accent-hover: #22c55e;       --text-main: #f4f4f5;       --text-muted: #a1a1aa;       --border: #27272a;     }
+<!DOCTYPE html> <html lang="en"> <head>   <meta charset="UTF-8">   <meta name="viewport" content="width=device-width, initial-scale=1.0">   <title>Spool - Local Audio Player</title>   <style>     :root {       --bg-color: #0f0f11;       --card-bg: #18181b;       --accent: #4ade80;       --text-main: #f4f4f5;       --text-muted: #a1a1aa;       --border: #27272a;     }
 
     * {       box-sizing: border-box;       margin: 0;       padding: 0;       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;     }
 
-    body {       background-color: var(--bg-color);       color: var(--text-main);       padding: 16px;       /* Prevent content from being hidden behind stacked bottom elements */       padding-bottom: calc(60px + 60px + env(safe-area-inset-bottom));       max-width: 600px;       margin: 0 auto;     }
+    body {       background-color: var(--bg-color);       color: var(--text-main);       padding: 16px;       padding-bottom: calc(60px + 60px + env(safe-area-inset-bottom));       max-width: 600px;       margin: 0 auto;     }
 
     header {       margin-bottom: 20px;     }
 
@@ -10,13 +10,7 @@
 
     p.subtitle {       color: var(--text-muted);       font-size: 13px;       margin-top: 4px;     }
 
-    /* Tabs */     .tabs {       display: flex;       gap: 8px;       margin-bottom: 16px;     }
-
-    .tab-btn {       background: var(--card-bg);       border: 1px solid var(--border);       color: var(--text-main);       padding: 8px 16px;       border-radius: 20px;       font-size: 14px;       cursor: pointer;     }
-
-    .tab-btn.active {       background: var(--accent);       color: #000;       font-weight: 600;       border-color: var(--accent);     }
-
-    /* Controls & Filters Bar */     .filter-bar {       display: flex;       flex-direction: column;       gap: 10px;       margin-bottom: 16px;     }
+    /* Filter & Search Bar */     .filter-bar {       display: flex;       flex-direction: column;       gap: 10px;       margin-bottom: 16px;     }
 
     .filter-row {       display: flex;       gap: 8px;       align-items: center;     }
 
@@ -26,13 +20,13 @@
 
     button:hover {       border-color: var(--text-muted);     }
 
-    /* Selection Toolbar (Hidden by default) */     .selection-toolbar {       display: none;       background: var(--card-bg);       border: 1px solid var(--border);       padding: 10px;       border-radius: 8px;       margin-bottom: 16px;       gap: 8px;       align-items: center;       flex-wrap: wrap;     }
+    /* Selection Toolbar */     .selection-toolbar {       display: none;       background: var(--card-bg);       border: 1px solid var(--border);       padding: 10px;       border-radius: 8px;       margin-bottom: 16px;       gap: 8px;       align-items: center;       flex-wrap: wrap;     }
 
     .selection-toolbar.active {       display: flex;     }
 
     .selection-count {       font-weight: 600;       font-size: 14px;       margin-right: auto;     }
 
-    /* Tracks Header Section */     .tracks-header {       display: flex;       justify-content: space-between;       align-items: center;       margin-bottom: 12px;     }
+    /* Tracks Header */     .tracks-header {       display: flex;       justify-content: space-between;       align-items: center;       margin-bottom: 12px;     }
 
     .tracks-title-group h2 {       font-size: 18px;       font-weight: 600;     }
 
@@ -60,7 +54,7 @@
 
     .mini-player-sub {       font-size: 11px;       color: var(--text-muted);     }
 
-    /* Bottom App Navigation */     .app-nav {       position: fixed;       bottom: 0;       left: 0;       right: 0;       height: 56px;       background: var(--bg-color);       border-top: 1px solid var(--border);       display: flex;       justify-content: space-around;       align-items: center;       z-index: 40;       max-width: 600px;       margin: 0 auto;     }
+    /* Bottom App Navigation (Original Tabs Moved Here) */     .app-nav {       position: fixed;       bottom: 0;       left: 0;       right: 0;       height: 56px;       background: var(--bg-color);       border-top: 1px solid var(--border);       display: flex;       justify-content: space-around;       align-items: center;       z-index: 40;       max-width: 600px;       margin: 0 auto;     }
 
     .nav-item {       background: none;       border: none;       color: var(--text-muted);       font-size: 11px;       display: flex;       flex-direction: column;       align-items: center;       gap: 4px;       cursor: pointer;     }
 
@@ -68,11 +62,9 @@
 
   <header>     <h1> ◎  Spool</h1>     <p class="subtitle">Play music straight from your Files app</p>   </header>
 
-  <div class="tabs">     <button class="tab-btn active">Songs</button>     <button class="tab-btn">Albums</button>     <button class="tab-btn">Artists</button>   </div>
-
   <div class="filter-bar">     <div class="filter-row">       <input type="text" placeholder="Search your library...">       <select>         <option>Recently added</option>         <option>Alphabetical</option>       </select>     </div>     <div class="filter-row">       <select style="flex: 1;">         <option>All tracks</option>       </select>       <button>★ Favorites</button>       <button id="select-mode-btn">Select</button>     </div>   </div>
 
-  <!-- Selection Toolbar (Toggled via JS) -->   <div class="selection-toolbar" id="selectionToolbar">     <span class="selection-count">0 selected</span>     <button>Select all</button>     <button>★ Favorite</button>     <button>Add to playlist...</button>     <button style="color: #f87171;">Delete</button>   </div>
+  <!-- Selection Toolbar -->   <div class="selection-toolbar" id="selectionToolbar">     <span class="selection-count">0 selected</span>     <button>Select all</button>     <button>★ Favorite</button>     <button>Add to playlist...</button>     <button style="color: #f87171;">Delete</button>   </div>
 
   <div class="tracks-header">     <div class="tracks-title-group">       <h2>Tracks</h2>       <span>11h 12m total &bull; 828 tracks</span>     </div>     <button class="shuffle-btn-primary">⇄ Shuffle</button>   </div>
 
@@ -80,8 +72,8 @@
 
   <!-- Mini Player -->   <div class="mini-player">     <div class="mini-player-thumb"></div>     <div class="mini-player-info">       <div class="mini-player-title">Celosa</div>       <div class="mini-player-sub">ANGEL22 &mdash; Track 61 of 828</div>     </div>     <button>▶</button>     <button>⏭</button>   </div>
 
-  <!-- Bottom Navigation -->   <nav class="app-nav">     <button class="nav-item active"> ◎  Library</button>     <button class="nav-item">☰ Playlists</button>     <button class="nav-item">⊕ Add Music</button>     <button class="nav-item">⚙ Settings</button>   </nav>
+  <!-- Bottom Navigation (Original Songs/Albums/Artists tabs + library navigation) -->   <nav class="app-nav">     <button class="nav-item active"> ◎  Songs</button>     <button class="nav-item">💿 Albums</button>     <button class="nav-item">🎤 Artists</button>     <button class="nav-item">☰ Playlists</button>     <button class="nav-item">⚙ Settings</button>   </nav>
 
-  <script>     // Handle Selection Mode Toggle     const selectBtn = document.getElementById('select-mode-btn');     const selectionToolbar = document.getElementById('selectionToolbar');
+  <script>     const selectBtn = document.getElementById('select-mode-btn');     const selectionToolbar = document.getElementById('selectionToolbar');
 
     selectBtn.addEventListener('click', () => {       selectionToolbar.classList.toggle('active');       const isActive = selectionToolbar.classList.contains('active');       selectBtn.textContent = isActive ? 'Cancel' : 'Select';       selectBtn.style.borderColor = isActive ? 'var(--accent)' : 'var(--border)';     });   </script> </body> </html>
