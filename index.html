@@ -1,25 +1,101 @@
-<!DOCTYPE html> <html lang="en"> <head>     <meta charset="UTF-8">     <meta name="viewport" content="width=device-width, initial-scale=1.0">     <title>Spool Music Player</title>     <style>         body {              font-family: sans-serif;              background: #121212;              color: #fff;              display: flex;              flex-direction: column;              align-items: center;              min-height: 100vh;              margin: 0;              padding: 20px 10px;              box-sizing: border-box;         }         .screen {              display: none;              background: #1e1e1e;              padding: 20px;              border-radius: 12px;              margin-bottom: 15px;              width: 100%;             max-width: 320px;              box-shadow: 0 4px 12px rgba(0,0,0,0.5);              box-sizing: border-box;             flex-direction: column;         }         .screen.active {              display: flex;          }         h2, h3 {             margin-top: 0;             margin-bottom: 15px;             border: none !important;             outline: none !important;         }         input[type="file"] {             margin-bottom: 10px;             color: #ccc;         }         audio {             width: 100%;             margin-top: 10px;         }         .equalizer-panel {              gap: 12px;          }         .band {              display: flex;              justify-content: space-between;              align-items: center;              font-size: 12px;          }         input[type="range"] {              width: 75%;          }         button {              background: #1db954;              border: none;              color: white;              padding: 10px 15px;              border-radius: 20px;              cursor: pointer;              font-weight: bold;              width: 100%;              margin-top: 10px;          }         button:hover {              background: #1ed760;          }         .secondary-btn {             background: #333;         }         .secondary-btn:hover {             background: #444;         }     </style> </head> <body>
+<!DOCTYPE html> <html lang="en"> <head>   <meta charset="UTF-8">   <meta name="viewport" content="width=device-width, initial-scale=1.0">   <title>Spool Music Player</title>   <style>     :root {       --bg-color: #0f1115;       --surface-color: #181b22;       --surface-hover: #212631;       --text-primary: #f0f2f5;       --text-secondary: #9da3af;       --accent-color: #6366f1;       --accent-hover: #4f46e5;       --border-color: #2d333b;       --danger-color: #ef4444;     }
 
-    <!-- Main Player Screen -->     <div id="playerScreen" class="screen active">         <h2>Spool Player</h2>         <input type="file" id="audioFile" accept="audio/*">         <audio id="audioElement" controls></audio>         <button class="secondary-btn" onclick="switchScreen('settingsScreen')">Settings & Equalizer</button>     </div>
+    * {       box-sizing: border-box;       margin: 0;       padding: 0;       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;     }
 
-    <!-- Settings Screen containing Equalizer -->     <div id="settingsScreen" class="screen equalizer-panel">         <h3>Settings</h3>         <h4>Equalizer</h4>         <div class="band"><span>60Hz</span> <input type="range" min="-12" max="12" value="0" step="0.5" oninput="setBandGain(0, this.value)"></div>         <div class="band"><span>230Hz</span> <input type="range" min="-12" max="12" value="0" step="0.5" oninput="setBandGain(1, this.value)"></div>         <div class="band"><span>910Hz</span> <input type="range" min="-12" max="12" value="0" step="0.5" oninput="setBandGain(2, this.value)"></div>         <div class="band"><span>4kHz</span> <input type="range" min="-12" max="12" value="0" step="0.5" oninput="setBandGain(3, this.value)"></div>         <div class="band"><span>14kHz</span> <input type="range" min="-12" max="12" value="0" step="0.5" oninput="setBandGain(4, this.value)"></div>         <button onclick="switchScreen('playerScreen')">Back to Player</button>     </div>
+    body {       background-color: var(--bg-color);       color: var(--text-primary);       display: flex;       flex-direction: column;       height: 100vh;       overflow: hidden;     }
 
-    <script>         const audioElement = document.getElementById('audioElement');         const fileInput = document.getElementById('audioFile');                  let audioCtx, sourceNode, filters = [];         let isInitialized = false;
+    header {       display: flex;       justify-content: space-between;       align-items: center;       padding: 1rem 1.5rem;       background-color: var(--surface-color);       border-bottom: 1px solid var(--border-color);     }
 
-        function switchScreen(screenId) {             document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));             document.getElementById(screenId).classList.add('active');         }
+    h1 {       font-size: 1.25rem;       font-weight: 600;     }
 
-        fileInput.addEventListener('change', function(e) {             const file = e.target.files[0];             if (file) {                 audioElement.src = URL.createObjectURL(file);                 audioElement.load();             }         });
+    .header-actions {       display: flex;       gap: 0.75rem;     }
 
-        audioElement.addEventListener('play', () => {             if (!isInitialized) {                 initEqualizer();                 isInitialized = true;             }             if (audioCtx.state === 'suspended') {                 audioCtx.resume();             }         });
+    button {       background-color: var(--accent-color);       color: white;       border: none;       padding: 0.5rem 1rem;       border-radius: 6px;       cursor: pointer;       font-weight: 500;       font-size: 0.875rem;       transition: background-color 0.2s;     }
 
-        function initEqualizer() {             audioCtx = new (window.AudioContext || window.webkitAudioContext)();             sourceNode = audioCtx.createMediaElementSource(audioElement);
+    button:hover {       background-color: var(--accent-hover);     }
 
-            const frequencies = [60, 230, 910, 4000, 14000];             let lastNode = sourceNode;
+    .btn-ghost {       background-color: transparent;       color: var(--text-primary);       border: 1px solid var(--border-color);     }
 
-            filters = frequencies.map(freq => {                 let filter = audioCtx.createBiquadFilter();                 filter.type = 'peaking';                 filter.frequency.value = freq;                 filter.gain.value = 0;                 filter.Q.value = 1;
+    .btn-ghost:hover {       background-color: var(--surface-hover);     }
 
-                lastNode.connect(filter);                 lastNode = filter;                 return filter;             });
+    main {       flex: 1;       display: flex;       overflow: hidden;     }
 
-            lastNode.connect(audioCtx.destination);         }
+    .sidebar {       width: 280px;       background-color: var(--surface-color);       border-right: 1px solid var(--border-color);       display: flex;       flex-direction: column;       padding: 1rem;       gap: 1rem;     }
 
-        function setBandGain(bandIndex, gainValue) {             if (filters[bandIndex]) {                 filters[bandIndex].gain.value = parseFloat(gainValue);             }         }     </script> </body> </html>
+    .playlist-container {       flex: 1;       overflow-y: auto;       display: flex;       flex-direction: column;       gap: 0.5rem;     }
+
+    .track-item {       padding: 0.75rem;       border-radius: 6px;       cursor: pointer;       display: flex;       flex-direction: column;       gap: 0.25rem;       transition: background-color 0.2s;     }
+
+    .track-item:hover {       background-color: var(--surface-hover);     }
+
+    .track-item.active {       background-color: var(--surface-hover);       border-left: 3px solid var(--accent-color);     }
+
+    .track-title {       font-size: 0.875rem;       font-weight: 500;     }
+
+    .track-artist {       font-size: 0.75rem;       color: var(--text-secondary);     }
+
+    .content-area {       flex: 1;       display: flex;       flex-direction: column;       justify-content: center;       align-items: center;       padding: 2rem;       gap: 2rem;     }
+
+    .visualizer-placeholder {       width: 100%;       max-width: 500px;       height: 250px;       background-color: var(--surface-color);       border: 1px solid var(--border-color);       border-radius: 12px;       display: flex;       justify-content: center;       align-items: center;       color: var(--text-secondary);     }
+
+    .player-controls {       width: 100%;       max-width: 500px;       display: flex;       flex-direction: column;       gap: 1rem;       background-color: var(--surface-color);       padding: 1.5rem;       border-radius: 12px;       border: 1px solid var(--border-color);     }
+
+    .progress-bar-container {       display: flex;       align-items: center;       gap: 0.75rem;       font-size: 0.75rem;       color: var(--text-secondary);     }
+
+    input[type="range"] {       flex: 1;       accent-color: var(--accent-color);     }
+
+    .control-buttons {       display: flex;       justify-content: center;       align-items: center;       gap: 1rem;     }
+
+    /* Modal / Settings Overlay */     .overlay {       position: fixed;       top: 0;       left: 0;       width: 100%;       height: 100%;       background-color: rgba(0, 0, 0, 0.7);       display: flex;       justify-content: center;       align-items: center;       z-index: 1000;     }
+
+    .overlay[hidden] {       display: none;     }
+
+    .dialog {       background-color: var(--surface-color);       border: 1px solid var(--border-color);       width: 100%;       max-width: 500px;       border-radius: 12px;       display: flex;       flex-direction: column;       overflow: hidden;     }
+
+    .dialog-header {       padding: 1rem 1.5rem;       border-bottom: 1px solid var(--border-color);       display: flex;       justify-content: space-between;       align-items: center;     }
+
+    .dialog-body {       padding: 1.5rem;       display: flex;       flex-direction: column;       gap: 1.5rem;       max-height: 70vh;       overflow-y: auto;     }
+
+    .eq-sliders {       display: flex;       justify-content: space-between;       gap: 1rem;     }
+
+    .eq-band {       display: flex;       flex-direction: column;       align-items: center;       gap: 0.5rem;       font-size: 0.75rem;       color: var(--text-secondary);     }
+
+    .eq-band input[type="range"] {       writing-mode: bt-lr;       appearance: slider-vertical;       width: 24px;       height: 120px;     }   </style> </head> <body>
+
+  <header>     <h1>Spool Music Player</h1>     <div class="header-actions">       <button id="btn-open-settings" class="btn-ghost">Settings & Equalizer</button>       <button id="btn-upload">Add Music</button>       <input type="file" id="file-input" multiple accept="audio/*" style="display: none;">     </div>   </header>
+
+  <main>     <aside class="sidebar">       <h3>Library</h3>       <div class="playlist-container" id="playlist">         <!-- Dynamic tracks go here -->       </div>     </aside>
+
+    <section class="content-area">       <div class="visualizer-placeholder" id="now-playing-info">         Select a track to start playing       </div>
+
+      <div class="player-controls">         <div class="progress-bar-container">           <span id="current-time">0:00</span>           <input type="range" id="seek-bar" value="0" max="100">           <span id="total-duration">0:00</span>         </div>         <div class="control-buttons">           <button id="btn-prev" class="btn-ghost">Prev</button>           <button id="btn-play">Play</button>           <button id="btn-next" class="btn-ghost">Next</button>         </div>       </div>     </section>   </main>
+
+  <!-- Settings & Equalizer Overlay -->   <div class="overlay" id="settings-overlay" hidden>     <div class="dialog" id="settings-dialog">       <div class="dialog-header">         <h3>Settings & Equalizer</h3>         <button id="btn-close-settings" class="btn-ghost">✕</button>       </div>       <div class="dialog-body">         <div>           <h4 style="margin-bottom: 0.75rem; font-size: 0.9rem;">Equalizer Controls</h4>           <div class="eq-sliders">             <div class="eq-band"><span>60Hz</span><input type="range" min="-12" max="12" value="0" step="1"></div>             <div class="eq-band"><span>230Hz</span><input type="range" min="-12" max="12" value="0" step="1"></div>             <div class="eq-band"><span>910Hz</span><input type="range" min="-12" max="12" value="0" step="1"></div>             <div class="eq-band"><span>4kHz</span><input type="range" min="-12" max="12" value="0" step="1"></div>             <div class="eq-band"><span>14kHz</span><input type="range" min="-12" max="12" value="0" step="1"></div>           </div>         </div>       </div>     </div>   </div>
+
+  <script>     const audio = new Audio();     let tracks = [];     let currentIndex = -1;
+
+    const btnPlay = document.getElementById('btn-play');     const btnPrev = document.getElementById('btn-prev');     const btnNext = document.getElementById('btn-next');     const btnUpload = document.getElementById('btn-upload');     const fileInput = document.getElementById('file-input');     const playlistEl = document.getElementById('playlist');     const nowPlayingInfo = document.getElementById('now-playing-info');          const settingsOverlay = document.getElementById('settings-overlay');     const btnOpenSettings = document.getElementById('btn-open-settings');     const btnCloseSettings = document.getElementById('btn-close-settings');
+
+    btnUpload.addEventListener('click', () => fileInput.click());
+
+    fileInput.addEventListener('change', (e) => {       const files = Array.from(e.target.files);       files.forEach(file => {         tracks.push({           id: Math.random().toString(36.substring(2)),           name: file.name,           url: URL.createObjectURL(file),           size: file.size,           addedAt: new Date()         });       });       renderLibrary();       if (currentIndex === -1 && tracks.length > 0) {         loadTrack(0);       }     });
+
+    function renderLibrary() {       playlistEl.innerHTML = '';       tracks.forEach((track, index) => {         const item = document.createElement('div');         item.className = `track-item ${index === currentIndex ? 'active' : ''}`;         item.innerHTML = `           <div class="track-title">${track.name}</div>           <div class="track-artist">Local File</div>         `;         item.addEventListener('click', () => {           loadTrack(index);           playTrack();         });         playlistEl.appendChild(item);       });     }
+
+    function loadTrack(index) {       currentIndex = index;       audio.src = tracks[currentIndex].url;       nowPlayingInfo.textContent = `Now Playing: ${tracks[currentIndex].name}`;       renderLibrary();     }
+
+    function playTrack() {       if (currentIndex === -1) return;       audio.play();       btnPlay.textContent = 'Pause';     }
+
+    function pauseTrack() {       audio.pause();       btnPlay.textContent = 'Play';     }
+
+    btnPlay.addEventListener('click', () => {       if (currentIndex === -1) return;       if (audio.paused) {         playTrack();       } else {         pauseTrack();       }     });
+
+    btnNext.addEventListener('click', () => {       if (tracks.length === 0) return;       let nextIndex = (currentIndex + 1) % tracks.length;       loadTrack(nextIndex);       playTrack();     });
+
+    btnPrev.addEventListener('click', () => {       if (tracks.length === 0) return;       let prevIndex = (currentIndex - 1 + tracks.length) % tracks.length;       loadTrack(prevIndex);       playTrack();     });
+
+    // Settings Modal handlers     btnOpenSettings.addEventListener('click', () => {       settingsOverlay.hidden = false;     });
+
+    btnCloseSettings.addEventListener('click', () => {       settingsOverlay.hidden = true;     });
+
+    settingsOverlay.addEventListener('click', (e) => {       if (e.target === settingsOverlay) settingsOverlay.hidden = true;     });   </script> </body> </html>
