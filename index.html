@@ -1323,8 +1323,6 @@
           act:"You step into the barn.", mood:1, energy:-1, opensBarn:true },
         { icon:"🎣", label:"Pond dock", desc:"A small wooden dock over a still farm pond.",
           act:"You cast a line and wait quietly for a bite.", mood:6, energy:-3 },
-        { icon:"🔧", label:"Work & repair bench", desc:"A sturdy workbench for practicing repairs and taking small mechanics jobs around Sunny Town.",
-          opensRepairJobs:true },
         { icon:"💼", label:"Clock in", desc:"A time clock mounted on the barn wall.",
           act:"You clock in for your shift.", mood:0, energy:0, jobId:"farmhand" }
       ]
@@ -4503,12 +4501,11 @@
   /* ---------- instrument skills ---------- */
   const instrumentSkillLabels = {
     piano:"Piano", guitar:"Guitar", drums:"Drums", violin:"Violin",
-    trumpet:"Trumpet", saxophone:"Saxophone", clarinet:"Clarinet", singing:"Singing",
-    mechanics:"Everyday Mechanics", cooking:"Cooking", baking:"Baking", gardening:"Gardening", fishing:"Fishing"
+    trumpet:"Trumpet", saxophone:"Saxophone", clarinet:"Clarinet", singing:"Singing"
   };
 
   function defaultSkills(){
-    return { piano:0, guitar:0, drums:0, violin:0, trumpet:0, saxophone:0, clarinet:0, singing:0, mechanics:0, cooking:0, baking:0, gardening:0, fishing:0 };
+    return { piano:0, guitar:0, drums:0, violin:0, trumpet:0, saxophone:0, clarinet:0, singing:0 };
   }
 
   function skillTier(skill){
@@ -4835,37 +4832,6 @@
     try { await storageSetKey('world:lastDriftAt', String(now)); } catch (e){ /* non-critical */ }
   }
 
-
-  function openRepairJobs(){
-    const mechanics = state.character.skills?.mechanics || 0;
-    const jobs = [
-      {name:"Fix a squeaky bicycle", pay:10, need:0, text:"You tighten the loose parts and oil the chain. The bicycle rolls smoothly again."},
-      {name:"Repair a park bench", pay:18, need:20, text:"You replace a loose board and secure the bench. It is sturdy again."},
-      {name:"Fix a leaky faucet", pay:25, need:40, text:"You inspect the valve, replace the worn seal, and stop the leak."}
-    ];
-    const list = document.createElement('div');
-    list.className='shop-panel';
-    list.setAttribute('role','dialog');
-    list.setAttribute('aria-label','Mechanics repair jobs');
-    list.innerHTML='<h3>🔧 Mechanics repair jobs</h3><p class="fridge-hint">Your Everyday Mechanics skill is '+mechanics+'/100. Read the Mechanics book at the Library and practice repairs to improve it.</p>';
-    jobs.forEach(job=>{
-      const b=document.createElement('button'); b.type='button'; b.textContent=`${job.name} — earn $${job.pay}`;
-      b.disabled=mechanics<job.need;
-      b.addEventListener('click',()=>{
-        const before=state.character.skills?.mechanics||0;
-        state.character.skills.mechanics=Math.min(100,before+5);
-        state.money+=job.pay; updateWallet(); updateMeters(); persistSkills();
-        logEntry(`🔧 ${job.name}: earned $${job.pay}. Mechanics skill: ${state.character.skills.mechanics}/100.`);
-        speak(`${job.text} You earned $${job.pay}. Your Mechanics skill is now ${state.character.skills.mechanics} out of 100.`);
-        b.disabled=true;
-      });
-      list.appendChild(b);
-    });
-    const close=document.createElement('button'); close.type='button'; close.textContent='Close'; close.addEventListener('click',()=>{list.remove();}); list.appendChild(close);
-    document.body.appendChild(list);
-    requestAnimationFrame(()=>list.querySelector('button')?.focus());
-  }
-
   function interact(i){
     const loc = currentLocation();
     const h = loc.hotspots[i];
@@ -4931,10 +4897,6 @@
     }
     if (h.opensMailbox){
       openMailbox();
-      return;
-    }
-    if (h.opensRepairJobs){
-      openRepairJobs();
       return;
     }
     if (h.dynamicAnimalProducts){
