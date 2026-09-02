@@ -1517,6 +1517,53 @@
     }));
   }
 
+  function dbGetAllKeys(storeName){
+    return openDB().then(db => new Promise((resolve) => {
+      if (!db) { resolve([]); return; }
+      try {
+        const tx = db.transaction(storeName, 'readonly');
+        const req = tx.objectStore(storeName).getAllKeys();
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = () => resolve([]);
+      } catch (e) { resolve([]); }
+    }));
+  }
+
+  function dbGet(storeName, key){
+    return openDB().then(db => new Promise((resolve) => {
+      if (!db) { resolve(undefined); return; }
+      try {
+        const tx = db.transaction(storeName, 'readonly');
+        const req = tx.objectStore(storeName).get(key);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => resolve(undefined);
+      } catch (e) { resolve(undefined); }
+    }));
+  }
+
+  // Fetches many records by key a few at a time instead of one bulk
+  // getAll(). A library with 100+ tracks means 100+ full-size audio blobs
+  // — asking IndexedDB to hand all of them back in a single response can
+  // overwhelm memory during the transfer on some browsers (this mirrors
+  // persistTrackBlobsThrottled below, which fixes the identical problem on
+  // the write side) and was the likely cause of the tab silently reloading
+  // partway through opening a large library. Keeping only a handful of
+  // reads in flight avoids that spike.
+  async function dbGetManyThrottled(storeName, keys, concurrency){
+    const results = new Array(keys.length);
+    let next = 0;
+    async function worker(){
+      while (next < keys.length) {
+        const i = next++;
+        results[i] = await dbGet(storeName, keys[i]);
+      }
+    }
+    const workers = [];
+    for (let w = 0; w < Math.min(concurrency, keys.length); w++) workers.push(worker());
+    await Promise.all(workers);
+    return results;
+  }
+
   function dbClearStore(storeName){
     return openDB().then(db => new Promise((resolve) => {
       if (!db) { resolve(false); return; }
@@ -1626,11 +1673,12 @@
   }
 
   async function restoreLibraryFromDB(){
-    const [trackRecords, blobRecords, playlistRecords] = await Promise.all([
-      dbGetAll('tracks'), dbGetAll('blobs'), dbGetAll('playlists')
+    const [trackRecords, blobKeys, playlistRecords] = await Promise.all([
+      dbGetAll('tracks'), dbGetAllKeys('blobs'), dbGetAll('playlists')
     ]);
     if (!trackRecords.length) return false;
-    const blobById = new Map(blobRecords.map(b => [b.id, b]));
+    const blobRecords = await dbGetManyThrottled('blobs', blobKeys, 4);
+    const blobById = new Map(blobRecords.filter(Boolean).map(b => [b.id, b]));
     playlistRecords.forEach(p => { if (!playlists.some(x => x.id === p.id)) playlists.push({ id: p.id, name: p.name }); });
     trackRecords.sort((a, b) => (a.addedAt || 0) - (b.addedAt || 0));
     const restored = [];
