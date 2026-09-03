@@ -620,6 +620,10 @@
   fieldset { border: none; margin: 0; padding: 0; }
   legend { padding:0; margin-bottom: 8px; font-size: 0.9rem; font-weight: 600; }
   .pill-row { display:flex; gap: 6px; flex-wrap: wrap; }
+  .eq-row { display:flex; align-items:center; gap: 12px; margin-top: 10px; }
+  .eq-row label { width: 52px; flex-shrink: 0; color: var(--paper-dim); }
+  .eq-row input[type="range"] { flex: 1; }
+  .eq-row .eq-value { width: 52px; flex-shrink: 0; text-align: right; color: var(--paper-dim); }
   .pill { border: 1px solid var(--line); padding: 8px 14px; border-radius: 999px; font-size: 0.82rem; color: var(--paper-dim); }
   .pill[aria-pressed="true"] { background: var(--teal); border-color: var(--teal); color: #fff; }
   .pill:hover { border-color: var(--brass); color: var(--paper); }
@@ -1092,8 +1096,26 @@
           <button class="pill" data-quality="warm" aria-pressed="false">Warm</button>
           <button class="pill" data-quality="bright" aria-pressed="false">Bright</button>
           <button class="pill" data-quality="voice" aria-pressed="false">Voice</button>
+          <button class="pill" data-quality="custom" aria-pressed="false">Custom</button>
         </div>
       </fieldset>
+      <div id="custom-eq-controls" hidden style="margin-top:14px;">
+        <div class="eq-row">
+          <label for="eq-low">Bass</label>
+          <input type="range" id="eq-low" min="-12" max="12" step="1" value="0" />
+          <span class="mono eq-value" id="eq-low-value">0 dB</span>
+        </div>
+        <div class="eq-row">
+          <label for="eq-mid">Mid</label>
+          <input type="range" id="eq-mid" min="-12" max="12" step="1" value="0" />
+          <span class="mono eq-value" id="eq-mid-value">0 dB</span>
+        </div>
+        <div class="eq-row">
+          <label for="eq-high">Treble</label>
+          <input type="range" id="eq-high" min="-12" max="12" step="1" value="0" />
+          <span class="mono eq-value" id="eq-high-value">0 dB</span>
+        </div>
+      </div>
       <p class="formats-note" style="margin-top:10px;">Sound profiles adjust tone using an equalizer — they don't change your file's original bitrate.</p>
     </div>
 
@@ -1262,6 +1284,13 @@
   const qualityButtons = document.querySelectorAll('[data-quality]');
   const speedButtons = document.querySelectorAll('[data-speed]');
   const spatialButtons = document.querySelectorAll('[data-spatial]');
+  const customEqControls = document.getElementById('custom-eq-controls');
+  const eqLowSlider = document.getElementById('eq-low');
+  const eqMidSlider = document.getElementById('eq-mid');
+  const eqHighSlider = document.getElementById('eq-high');
+  const eqLowValue = document.getElementById('eq-low-value');
+  const eqMidValue = document.getElementById('eq-mid-value');
+  const eqHighValue = document.getElementById('eq-high-value');
 
   const libraryEmpty = document.getElementById('library-empty');
   const libraryContent = document.getElementById('library-content');
@@ -1455,6 +1484,7 @@
   const STORAGE_KEY_SPATIAL = 'spool_spatial_v1';
   const STORAGE_KEY_DAILY_LOG = 'spool_daily_log_v1';
   const STORAGE_KEY_SHORTCUTS_VISIBLE = 'spool_shortcuts_visible_v1';
+  const STORAGE_KEY_EQ = 'spool_custom_eq_v1';
   let storageAvailable = false;
   try {
     const testKey = '__spool_test__';
@@ -2333,6 +2363,14 @@
   let audioBPrimed = false;
   let bgAudioPrimed = false;
   let currentQualityName = 'standard';
+  let customEQ = { low: 0, mid: 0, high: 0 };
+  (function loadCustomEQ(){
+    if (!storageAvailable) return;
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY_EQ) || 'null');
+      if (saved && typeof saved.low === 'number') customEQ = saved;
+    } catch (e) {}
+  })();
   let currentSpatialMode = 'normal';
 
   function buildChain(mediaEl){
@@ -2522,7 +2560,7 @@
   function applyQuality(name){
     currentQualityName = name;
     if (!chainA) return;
-    const p = qualityPresets[name] || qualityPresets.standard;
+    const p = name === 'custom' ? customEQ : (qualityPresets[name] || qualityPresets.standard);
     [chainA, chainB].forEach(c => { c.low.gain.value = p.low; c.mid.gain.value = p.mid; c.high.gain.value = p.high; });
   }
 
@@ -5249,6 +5287,7 @@
       updatePlayButton(false);
       qualityButtons.forEach(b => b.setAttribute('aria-pressed', b.dataset.quality === 'standard' ? 'true' : 'false'));
       applyQuality('standard');
+      customEqControls.hidden = true;
       spatialButtons.forEach(b => b.setAttribute('aria-pressed', b.dataset.spatial === 'normal' ? 'true' : 'false'));
       applySpatialMode('normal');
       if (storageAvailable) { try { window.localStorage.removeItem(STORAGE_KEY_SPATIAL); } catch (e) {} }
@@ -5421,10 +5460,26 @@
       ensureAudioGraph();
       qualityButtons.forEach(b => b.setAttribute('aria-pressed', 'false'));
       btn.setAttribute('aria-pressed', 'true');
-      applyQuality(btn.getAttribute('data-quality'));
+      const name = btn.getAttribute('data-quality');
+      applyQuality(name);
+      customEqControls.hidden = name !== 'custom';
+      if (name === 'custom') {
+        eqLowSlider.value = customEQ.low; eqMidSlider.value = customEQ.mid; eqHighSlider.value = customEQ.high;
+        eqLowValue.textContent = customEQ.low + ' dB'; eqMidValue.textContent = customEQ.mid + ' dB'; eqHighValue.textContent = customEQ.high + ' dB';
+      }
       announce('Sound profile set to ' + btn.textContent);
     });
   });
+  function handleEqSliderInput(){
+    ensureAudioGraph();
+    customEQ = { low: parseFloat(eqLowSlider.value), mid: parseFloat(eqMidSlider.value), high: parseFloat(eqHighSlider.value) };
+    eqLowValue.textContent = customEQ.low + ' dB';
+    eqMidValue.textContent = customEQ.mid + ' dB';
+    eqHighValue.textContent = customEQ.high + ' dB';
+    applyQuality('custom');
+    if (storageAvailable) { try { window.localStorage.setItem(STORAGE_KEY_EQ, JSON.stringify(customEQ)); } catch (e) {} }
+  }
+  [eqLowSlider, eqMidSlider, eqHighSlider].forEach(s => s.addEventListener('input', handleEqSliderInput));
   speedButtons.forEach(btn => {
     btn.addEventListener('click', () => {
       speedButtons.forEach(b => b.setAttribute('aria-pressed', 'false'));
