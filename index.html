@@ -270,6 +270,25 @@
   .np-upnext-list .np-name { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .np-upnext-empty { padding: 16px; text-align:center; color: var(--paper-dim); font-size: 0.82rem; border: 1.5px dashed var(--line); border-radius: var(--radius); }
 
+  /* Reorderable queue rows (Queue overlay only) */
+  #queue-list li { cursor: default; position: relative; }
+  .q-handle {
+    flex-shrink:0; width: 30px; height: 30px; display:flex; align-items:center; justify-content:center;
+    background: none; border: none; color: var(--paper-dim); cursor: grab; touch-action: none; padding: 0;
+  }
+  .q-handle:active { cursor: grabbing; }
+  .q-row-main { display:flex; align-items:center; gap: 10px; flex:1; min-width:0; background:none; border:none; text-align:left; color: inherit; font: inherit; cursor: pointer; padding: 0; }
+  .q-move-btns { display:flex; flex-direction:column; gap: 2px; flex-shrink:0; }
+  .q-move-btn {
+    width: 26px; height: 18px; display:flex; align-items:center; justify-content:center;
+    background: none; border: none; color: var(--paper-dim); padding:0; font-size: 0.7rem; cursor: pointer;
+  }
+  .q-move-btn:disabled { opacity: 0.25; cursor: default; }
+  .q-move-btn:hover:not(:disabled) { color: var(--brass); }
+  #queue-list li.q-dragging { opacity: 0.5; }
+  #queue-list li.q-drag-over-above { box-shadow: inset 0 2px 0 var(--brass); }
+  #queue-list li.q-drag-over-below { box-shadow: inset 0 -2px 0 var(--brass); }
+
   /* Inline rename */
   .li-rename-input {
     flex: 1; min-width: 0; font-size: 0.88rem;
@@ -4136,10 +4155,28 @@
     }
     upcoming.forEach((idx, pos) => {
       const t = tracks[idx];
+      // Items looped back around from the start of the library (repeat-all)
+      // aren't part of the contiguous run right after the playing track, so
+      // reordering them would be confusing — show them, but view-only.
+      const isWrapped = idx < currentIndex;
       const li = document.createElement('li');
-      li.setAttribute('role', 'button');
-      li.setAttribute('tabindex', '0');
-      li.setAttribute('aria-label', 'Play ' + (t.tagTitle || t.name) + ' now');
+      if (!isWrapped) li.dataset.realIdx = String(idx);
+
+      if (!isWrapped) {
+        const handle = document.createElement('button');
+        handle.type = 'button';
+        handle.className = 'q-handle';
+        handle.setAttribute('aria-hidden', 'true');
+        handle.tabIndex = -1;
+        handle.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="9" cy="6" r="1.5" fill="currentColor"/><circle cx="15" cy="6" r="1.5" fill="currentColor"/><circle cx="9" cy="12" r="1.5" fill="currentColor"/><circle cx="15" cy="12" r="1.5" fill="currentColor"/><circle cx="9" cy="18" r="1.5" fill="currentColor"/><circle cx="15" cy="18" r="1.5" fill="currentColor"/></svg>';
+        handle.addEventListener('pointerdown', (e) => startQueueDrag(e, li, idx));
+        li.appendChild(handle);
+      }
+
+      const main = document.createElement('button');
+      main.type = 'button';
+      main.className = 'q-row-main';
+      main.setAttribute('aria-label', 'Play ' + (t.tagTitle || t.name) + ' now');
       const num = document.createElement('span');
       num.className = 'np-idx mono';
       num.textContent = (pos + 1);
@@ -4151,11 +4188,94 @@
       dur.style.fontSize = '0.76rem';
       dur.style.color = 'var(--paper-dim)';
       dur.textContent = t.duration ? formatTime(t.duration) : '--:--';
-      li.appendChild(num); li.appendChild(name); li.appendChild(dur);
-      li.addEventListener('click', () => loadTrack(idx, true));
-      li.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); loadTrack(idx, true); } });
+      main.appendChild(num); main.appendChild(name); main.appendChild(dur);
+      main.addEventListener('click', () => loadTrack(idx, true));
+      li.appendChild(main);
+
+      if (!isWrapped) {
+        const moveBtns = document.createElement('div');
+        moveBtns.className = 'q-move-btns';
+        const upBtn = document.createElement('button');
+        upBtn.type = 'button';
+        upBtn.className = 'q-move-btn';
+        upBtn.setAttribute('aria-label', 'Move ' + (t.tagTitle || t.name) + ' up in queue');
+        upBtn.textContent = '▲';
+        upBtn.disabled = pos === 0;
+        upBtn.addEventListener('click', () => moveQueueItem(idx, -1));
+        const downBtn = document.createElement('button');
+        downBtn.type = 'button';
+        downBtn.className = 'q-move-btn';
+        downBtn.setAttribute('aria-label', 'Move ' + (t.tagTitle || t.name) + ' down in queue');
+        downBtn.textContent = '▼';
+        downBtn.disabled = pos === upcoming.length - 1 || upcoming[pos + 1] < idx;
+        downBtn.addEventListener('click', () => moveQueueItem(idx, 1));
+        moveBtns.appendChild(upBtn); moveBtns.appendChild(downBtn);
+        li.appendChild(moveBtns);
+      }
+
       queueList.appendChild(li);
     });
+  }
+
+  // Explicit, tap-based reordering — the primary way to reorder for anyone
+  // using VoiceOver or a keyboard, since drag gestures generally aren't
+  // reachable that way. Swaps the track with its neighbor one step at a
+  // time; disabled at the edges of the reorderable (non-wrapped) run.
+  function moveQueueItem(idx, direction){
+    const targetIdx = idx + direction;
+    if (targetIdx <= currentIndex || targetIdx >= tracks.length) return;
+    const [t] = tracks.splice(idx, 1);
+    tracks.splice(targetIdx, 0, t);
+    renderPlaylist();
+    if (!npOverlay.hidden) renderUpNext();
+    renderQueue();
+  }
+
+  // Touch/mouse drag-to-reorder on the handle. Reorders the visible <li>
+  // elements live as the pointer moves over neighbors, then reads the
+  // final DOM order back into the `tracks` array on release — the queue
+  // list itself never has more than 50 rows, so this stays cheap.
+  let queueDrag = null;
+  function startQueueDrag(e, li, realIdx){
+    e.preventDefault();
+    queueDrag = { pointerId: e.pointerId, li };
+    li.classList.add('q-dragging');
+    try { e.target.setPointerCapture(e.pointerId); } catch (err) {}
+  }
+  queueList.addEventListener('pointermove', (e) => {
+    if (!queueDrag || e.pointerId !== queueDrag.pointerId) return;
+    const y = e.clientY;
+    const siblings = [...queueList.querySelectorAll('li[data-real-idx]')].filter(li => li !== queueDrag.li);
+    for (const sib of siblings) {
+      const rect = sib.getBoundingClientRect();
+      const mid = rect.top + rect.height / 2;
+      if (y < mid && sib.previousElementSibling !== queueDrag.li) {
+        queueList.insertBefore(queueDrag.li, sib);
+        break;
+      } else if (y >= mid && sib.nextElementSibling !== queueDrag.li) {
+        queueList.insertBefore(queueDrag.li, sib.nextElementSibling);
+        break;
+      }
+    }
+  });
+  function endQueueDrag(e){
+    if (!queueDrag || e.pointerId !== queueDrag.pointerId) return;
+    queueDrag.li.classList.remove('q-dragging');
+    const newOrderRealIdx = [...queueList.querySelectorAll('li[data-real-idx]')].map(li => parseInt(li.dataset.realIdx, 10));
+    queueDrag = null;
+    applyQueueReorder(newOrderRealIdx);
+  }
+  queueList.addEventListener('pointerup', endQueueDrag);
+  queueList.addEventListener('pointercancel', endQueueDrag);
+
+  function applyQueueReorder(newOrderRealIdx){
+    if (currentIndex === -1 || newOrderRealIdx.length < 2) { renderQueue(); return; }
+    const movedTracks = newOrderRealIdx.map(i => tracks[i]);
+    [...newOrderRealIdx].sort((a, b) => b - a).forEach(i => tracks.splice(i, 1));
+    tracks.splice(currentIndex + 1, 0, ...movedTracks);
+    renderPlaylist();
+    if (!npOverlay.hidden) renderUpNext();
+    renderQueue();
   }
 
   function openQueue(){
