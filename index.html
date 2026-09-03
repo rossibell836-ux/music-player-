@@ -1015,6 +1015,16 @@
 
   <!-- Playlists panel -->
   <div id="panel-playlists" role="tabpanel" aria-labelledby="tab-playlists" tabindex="0" hidden>
+    <div class="settings-section" id="smart-mixes-section">
+      <div class="settings-row" style="align-items:baseline;">
+        <div>
+          <div class="label">Smart Mixes</div>
+          <div class="desc" id="smart-mixes-desc">Auto-built from your genres, decades, and tempo — no setup needed.</div>
+        </div>
+      </div>
+      <div id="smart-mixes-empty" class="empty-state" style="display:none;">Add some tracks with genre or year tags to see mixes here.</div>
+      <ul class="playlist" id="smart-mixes-list" aria-label="Smart mixes" style="display:none;"></ul>
+    </div>
     <div class="pp-new-row">
       <label for="playlists-tab-new-name" class="visually-hidden">New playlist name</label>
       <input type="text" id="playlists-tab-new-name" placeholder="New playlist name…" />
@@ -1305,6 +1315,9 @@
   const playlistsTabEmpty = document.getElementById('playlists-tab-empty');
   const playlistsTabNewName = document.getElementById('playlists-tab-new-name');
   const playlistsTabCreate = document.getElementById('playlists-tab-create');
+  const smartMixesList = document.getElementById('smart-mixes-list');
+  const smartMixesEmpty = document.getElementById('smart-mixes-empty');
+  const smartMixesDesc = document.getElementById('smart-mixes-desc');
 
   const actionSheetOverlay = document.getElementById('action-sheet-overlay');
   const actionSheetDialog = document.getElementById('action-sheet-dialog');
@@ -1433,6 +1446,7 @@
   let isCrossfading = false;
   let pendingSmartPick = null; // { forIndex, resolved }
   const analysisCache = new Map(); // trackId -> Promise<{bpm, energy} | null>
+  const resolvedAnalysisCache = new Map(); // trackId -> {bpm, energy} once the promise above settles — for sync reads (Smart Mixes)
 
   // ---------- Auto-save (favorites, playlists, renames) ----------
   const STORAGE_KEY_META = 'spool_track_meta_v1';
@@ -1461,7 +1475,7 @@
   // the audio (and artwork) itself in IndexedDB, keyed by track id, so the
   // whole library survives a refresh with nothing to re-select.
   const DB_NAME = 'spool-library';
-  const DB_VERSION = 1;
+  const DB_VERSION = 2;
   let dbPromise = null;
 
   function openDB(){
@@ -1475,6 +1489,11 @@
         if (!db.objectStoreNames.contains('tracks')) db.createObjectStore('tracks', { keyPath: 'id' });
         if (!db.objectStoreNames.contains('blobs')) db.createObjectStore('blobs', { keyPath: 'id' });
         if (!db.objectStoreNames.contains('playlists')) db.createObjectStore('playlists', { keyPath: 'id' });
+        // Holds the tempo/energy read from analyzeTrackAudio() per track, so
+        // the (fairly slow — it decodes the whole file) analysis used for
+        // smart-crossfade matching and tempo-based Smart Mixes only ever has
+        // to run once per track, ever, instead of every session.
+        if (!db.objectStoreNames.contains('analysis')) db.createObjectStore('analysis', { keyPath: 'id' });
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => resolve(null);
@@ -1665,6 +1684,8 @@
       tagTitle: t.tagTitle || null,
       tagArtist: t.tagArtist || null,
       tagAlbum: t.tagAlbum || null,
+      tagGenre: t.tagGenre || null,
+      tagYear: t.tagYear || null,
       trackNumber: t.trackNumber || null,
       playlistIds: t.playlistIds || [],
     }));
@@ -1710,6 +1731,8 @@
       if (rec.tagTitle) t.tagTitle = rec.tagTitle;
       if (rec.tagArtist) t.tagArtist = rec.tagArtist;
       if (rec.tagAlbum) t.tagAlbum = rec.tagAlbum;
+      if (rec.tagGenre) t.tagGenre = rec.tagGenre;
+      if (rec.tagYear) t.tagYear = rec.tagYear;
       if (rec.trackNumber) t.trackNumber = rec.trackNumber;
       if (artworkUrl) t.artworkUrl = artworkUrl;
       restored.push(t);
@@ -2552,7 +2575,14 @@
     if (!track) return Promise.resolve(null);
     let entry = analysisCache.get(track.id);
     if (!entry) {
-      entry = analyzeTrackAudio(track).catch(() => null);
+      entry = dbGet('analysis', track.id).then(saved => {
+        if (saved && typeof saved.bpm === 'number') return saved;
+        return analyzeTrackAudio(track).then(result => {
+          if (result) dbPut('analysis', { id: track.id, bpm: result.bpm, energy: result.energy });
+          return result;
+        });
+      }).catch(() => null);
+      entry.then(result => { if (result) resolvedAnalysisCache.set(track.id, result); });
       analysisCache.set(track.id, entry);
     }
     return entry;
@@ -2611,7 +2641,41 @@
     return { bpm: Math.round(bpm), energy };
   }
 
-  // Kicks off (but doesn't wait for) analysis of the currently playing track
+  // Background sweep: fills in tempo/energy analysis for every track that
+  // doesn't have it cached yet, so tempo-based Smart Mixes have something to
+  // work with. Runs one track at a time — each run fully decodes an audio
+  // file, which is real CPU/battery work, so this deliberately never runs
+  // more than one at a time and only starts when someone opens Smart Mixes.
+  const smartMixAnalysisStatus = { running: false, done: 0, total: 0, listeners: [] };
+  function onSmartMixAnalysisProgress(fn){ smartMixAnalysisStatus.listeners.push(fn); }
+  function notifySmartMixAnalysisProgress(){ smartMixAnalysisStatus.listeners.forEach(fn => { try { fn(smartMixAnalysisStatus); } catch (e) {} }); }
+
+  async function runSmartMixAnalysisSweep(){
+    if (smartMixAnalysisStatus.running) return;
+    const doneKeys = new Set(await dbGetAllKeys('analysis'));
+    const pending = tracks.filter(t => !doneKeys.has(t.id));
+    if (!pending.length) return;
+    smartMixAnalysisStatus.running = true;
+    smartMixAnalysisStatus.done = 0;
+    smartMixAnalysisStatus.total = pending.length;
+    notifySmartMixAnalysisProgress();
+    for (const t of pending) {
+      if (!smartMixAnalysisStatus.running) break; // cancelled
+      await getTrackAnalysis(t);
+      smartMixAnalysisStatus.done++;
+      notifySmartMixAnalysisProgress();
+      // Yield between tracks so a long sweep never blocks playback/UI.
+      await new Promise(r => setTimeout(r, 60));
+    }
+    smartMixAnalysisStatus.running = false;
+    notifySmartMixAnalysisProgress();
+  }
+
+  function stopSmartMixAnalysisSweep(){
+    smartMixAnalysisStatus.running = false;
+  }
+
+
   // and whichever track is likely to play next, so that by the time a
   // crossfade actually needs it, the result is already sitting in the cache.
   function armAnalysisPrefetch(){
@@ -2748,6 +2812,8 @@
     if (result.artist) { liveTrack.tagArtist = result.artist; tagsChanged = true; }
     if (result.album) { liveTrack.tagAlbum = result.album; tagsChanged = true; }
     if (result.trackNumber) { liveTrack.trackNumber = result.trackNumber; tagsChanged = true; }
+    if (result.genre) { liveTrack.tagGenre = result.genre; tagsChanged = true; }
+    if (result.year) { liveTrack.tagYear = result.year; tagsChanged = true; }
     if (result.artworkUrl) liveTrack.artworkUrl = result.artworkUrl;
     if (result.artworkBlob) persistTrackArtwork(liveTrack.id, result.artworkBlob, result.artworkMime || 'image/jpeg');
     if (tagsChanged) scheduleSyncLibraryToDB();
@@ -2805,6 +2871,20 @@
   }
   function stripNulls(s){ return (s || '').replace(/\u0000+$/, '').trim(); }
 
+  // The standard ID3v1 genre list. Modern taggers write plain genre text,
+  // but plenty of older/simpler ones still write TCON as a bare numeric
+  // code (e.g. "17") or the legacy "(17)" form, referring to this table.
+  const ID3V1_GENRES = ['Blues','Classic Rock','Country','Dance','Disco','Funk','Grunge','Hip-Hop','Jazz','Metal','New Age','Oldies','Other','Pop','R&B','Rap','Reggae','Rock','Techno','Industrial','Alternative','Ska','Death Metal','Pranks','Soundtrack','Euro-Techno','Ambient','Trip-Hop','Vocal','Jazz+Funk','Fusion','Trance','Classical','Instrumental','Acid','House','Game','Sound Clip','Gospel','Noise','AlternRock','Bass','Soul','Punk','Space','Meditative','Instrumental Pop','Instrumental Rock','Ethnic','Gothic','Darkwave','Techno-Industrial','Electronic','Pop-Folk','Eurodance','Dream','Southern Rock','Comedy','Cult','Gangsta','Top 40','Christian Rap','Pop/Funk','Jungle','Native American','Cabaret','New Wave','Psychedelic','Rave','Showtunes','Trailer','Lo-Fi','Tribal','Acid Punk','Acid Jazz','Polka','Retro','Musical','Rock & Roll','Hard Rock'];
+  function resolveId3Genre(raw){
+    if (!raw) return null;
+    const m = raw.match(/^\(?(\d{1,3})\)?$/);
+    if (m) {
+      const idx = parseInt(m[1], 10);
+      return ID3V1_GENRES[idx] || null;
+    }
+    return raw.replace(/^\((\d{1,3})\)/, '').trim() || null;
+  }
+
   function parseID3v2(bytes){
     if (bytes.length < 10) return null;
     const majorVersion = bytes[3];
@@ -2835,13 +2915,21 @@
         const n = parseInt(raw, 10);
         if (!isNaN(n)) out.trackNumber = n;
       }
+      else if (id === 'TCON' && frameBytes.length > 1) {
+        out.genre = resolveId3Genre(stripNulls(decodeTextBytes(frameBytes.subarray(1), frameBytes[0])));
+      }
+      else if ((id === 'TYER' || id === 'TDRC') && frameBytes.length > 1) {
+        const raw = stripNulls(decodeTextBytes(frameBytes.subarray(1), frameBytes[0]));
+        const y = parseInt(raw.slice(0, 4), 10);
+        if (!isNaN(y) && y > 1800 && y < 2100) out.year = y;
+      }
       else if (id === 'APIC' && !out.artworkBytes) {
         const apic = parseApicFrame(frameBytes);
         if (apic) { out.artworkBytes = apic.data; out.artworkMime = apic.mime; }
       }
       offset = frameEnd;
     }
-    return (out.title || out.artist || out.album || out.trackNumber || out.artworkBytes) ? out : null;
+    return (out.title || out.artist || out.album || out.trackNumber || out.artworkBytes || out.genre || out.year) ? out : null;
   }
 
   function parseApicFrame(bytes){
@@ -2887,7 +2975,7 @@
       offset = blockEnd;
       if (isLast) break;
     }
-    return (out.title || out.artist || out.album || out.trackNumber || out.artworkBytes) ? out : null;
+    return (out.title || out.artist || out.album || out.trackNumber || out.artworkBytes || out.genre || out.year) ? out : null;
   }
 
   function parseVorbisComment(bytes, out){
@@ -2911,6 +2999,11 @@
       else if ((key === 'TRACKNUMBER' || key === 'TRACK') && !out.trackNumber) {
         const n = parseInt(val, 10);
         if (!isNaN(n)) out.trackNumber = n;
+      }
+      else if (key === 'GENRE' && !out.genre) out.genre = val;
+      else if ((key === 'DATE' || key === 'YEAR') && !out.year) {
+        const y = parseInt(val.slice(0, 4), 10);
+        if (!isNaN(y) && y > 1800 && y < 2100) out.year = y;
       }
     }
   }
@@ -2970,6 +3063,17 @@
       if (item.type === '\u00A9nam') out.title = new TextDecoder('utf-8').decode(bytes.subarray(payloadStart, dataBox.end));
       else if (item.type === '\u00A9ART') out.artist = new TextDecoder('utf-8').decode(bytes.subarray(payloadStart, dataBox.end));
       else if (item.type === '\u00A9alb') out.album = new TextDecoder('utf-8').decode(bytes.subarray(payloadStart, dataBox.end));
+      else if (item.type === '\u00A9gen') out.genre = new TextDecoder('utf-8').decode(bytes.subarray(payloadStart, dataBox.end));
+      else if (item.type === 'gnre' && payloadStart + 2 <= dataBox.end) {
+        // Enum form: a 1-based index into the same ID3v1 genre table.
+        const idx = ((bytes[payloadStart] << 8) | bytes[payloadStart + 1]) - 1;
+        if (ID3V1_GENRES[idx]) out.genre = ID3V1_GENRES[idx];
+      }
+      else if (item.type === '\u00A9day') {
+        const raw = new TextDecoder('utf-8').decode(bytes.subarray(payloadStart, dataBox.end));
+        const y = parseInt(raw.slice(0, 4), 10);
+        if (!isNaN(y) && y > 1800 && y < 2100) out.year = y;
+      }
       else if (item.type === 'covr' && !out.artworkBytes) {
         out.artworkBytes = bytes.subarray(payloadStart, dataBox.end);
         out.artworkMime = typeFlags === 14 ? 'image/png' : 'image/jpeg';
@@ -2981,7 +3085,7 @@
         if (trackNum > 0) out.trackNumber = trackNum;
       }
     }
-    return (out.title || out.artist || out.album || out.trackNumber || out.artworkBytes) ? out : null;
+    return (out.title || out.artist || out.album || out.trackNumber || out.artworkBytes || out.genre || out.year) ? out : null;
   }
 
   // A branded placeholder cover (a brass reel on ink) used for Media Session
@@ -3256,6 +3360,10 @@
       tab.tabIndex = selected ? 0 : -1;
       panels[tab.id].hidden = !selected;
     });
+    if (tabId === 'tab-playlists') {
+      renderSmartMixes();
+      runSmartMixAnalysisSweep();
+    }
   }
   tabs.forEach((tab, i) => {
     tab.addEventListener('click', () => selectTab(tab.id));
@@ -3394,6 +3502,114 @@
     });
     playlistFilterSelect.value = playlists.some(p => p.id === current) || current === 'all' ? current : 'all';
   }
+
+  // ---------- Smart Mixes ----------
+  // Auto-generated, read-only "playlists" built from tags/analysis that are
+  // already sitting on each track — nothing to name or maintain. Genre and
+  // decade mixes are available immediately; tempo mixes fill in gradually
+  // as runSmartMixAnalysisSweep() works through the library in the background.
+  const MIN_MIX_SIZE = 3;
+  function computeSmartMixes(){
+    const mixes = [];
+
+    const byGenre = new Map();
+    tracks.forEach(t => { if (t.tagGenre) { if (!byGenre.has(t.tagGenre)) byGenre.set(t.tagGenre, []); byGenre.get(t.tagGenre).push(t); } });
+    [...byGenre.entries()]
+      .filter(([, list]) => list.length >= MIN_MIX_SIZE)
+      .sort((a, b) => b[1].length - a[1].length)
+      .slice(0, 8)
+      .forEach(([genre, list]) => mixes.push({ type: 'genre', value: genre, name: genre + ' Mix', tracks: list }));
+
+    const byDecade = new Map();
+    tracks.forEach(t => { if (t.tagYear) { const d = Math.floor(t.tagYear / 10) * 10; if (!byDecade.has(d)) byDecade.set(d, []); byDecade.get(d).push(t); } });
+    [...byDecade.entries()]
+      .filter(([, list]) => list.length >= MIN_MIX_SIZE)
+      .sort((a, b) => a[0] - b[0])
+      .forEach(([decade, list]) => mixes.push({ type: 'decade', value: decade, name: decade + 's Mix', tracks: list }));
+
+    const analyzed = tracks
+      .map(t => ({ t, a: resolvedAnalysisCache.get(t.id) }))
+      .filter(x => x.a && typeof x.a.bpm === 'number');
+    if (analyzed.length >= MIN_MIX_SIZE) {
+      const buckets = [
+        { name: 'Chill Mix', test: a => a.bpm < 100 },
+        { name: 'Groove Mix', test: a => a.bpm >= 100 && a.bpm < 130 },
+        { name: 'Energetic Mix', test: a => a.bpm >= 130 },
+      ];
+      buckets.forEach(b => {
+        const list = analyzed.filter(x => b.test(x.a)).map(x => x.t);
+        if (list.length >= MIN_MIX_SIZE) mixes.push({ type: 'tempo', value: b.name, name: b.name, tracks: list });
+      });
+    }
+    return mixes;
+  }
+
+  function playSmartMix(mix, shuffle){
+    const list = tracks.map((t, i) => ({ ...t, originalIndex: i })).filter(t => mix.tracks.some(mt => mt.id === t.id));
+    if (!list.length) { announce('This mix has no tracks right now.'); return; }
+    if (mix.type === 'tempo') groupFilter = { type: 'tempo', value: mix.value, trackIds: mix.tracks.map(t => t.id) };
+    else groupFilter = { type: mix.type, value: mix.value };
+    groupSourceView = 'smart-mixes';
+    selectTab('tab-library');
+    setLibraryViewMode('songs');
+    if (shuffle) shufflePlayTracks(list);
+    else announce('Showing ' + mix.name);
+  }
+
+  function renderSmartMixes(){
+    const mixes = computeSmartMixes();
+    smartMixesList.innerHTML = '';
+    const hasMixes = mixes.length > 0;
+    smartMixesEmpty.style.display = hasMixes ? 'none' : 'block';
+    smartMixesList.style.display = hasMixes ? 'block' : 'none';
+    mixes.forEach(mix => {
+      const li = document.createElement('li');
+
+      const openBtn = document.createElement('button');
+      openBtn.type = 'button';
+      openBtn.className = 'li-play-target';
+      openBtn.setAttribute('aria-label', 'Open ' + mix.name + ', ' + mix.tracks.length + (mix.tracks.length === 1 ? ' track' : ' tracks'));
+
+      const name = document.createElement('span');
+      name.className = 'li-name';
+      name.textContent = mix.name;
+
+      const countSpan = document.createElement('span');
+      countSpan.className = 'li-duration mono';
+      countSpan.textContent = mix.tracks.length + (mix.tracks.length === 1 ? ' track' : ' tracks');
+
+      openBtn.appendChild(name);
+      openBtn.appendChild(countSpan);
+      openBtn.addEventListener('click', () => playSmartMix(mix, false));
+
+      const shuffleBtn = document.createElement('button');
+      shuffleBtn.type = 'button';
+      shuffleBtn.className = 'li-shuffle';
+      shuffleBtn.setAttribute('aria-label', 'Shuffle play ' + mix.name);
+      shuffleBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h3.3c1.1 0 2.1.55 2.7 1.45l6 8.1c.6.9 1.6 1.45 2.7 1.45H21M3 18h3.3c1.1 0 2.1-.55 2.7-1.45l1-1.35M17 3l4 3-4 3M17 15l4 3-4 3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+      shuffleBtn.addEventListener('click', () => playSmartMix(mix, true));
+
+      li.appendChild(openBtn);
+      li.appendChild(shuffleBtn);
+      smartMixesList.appendChild(li);
+    });
+    updateSmartMixesDesc();
+  }
+
+  function updateSmartMixesDesc(){
+    if (smartMixAnalysisStatus.running) {
+      smartMixesDesc.textContent = 'Auto-built from your genres, decades, and tempo — analyzing tempo… ' + smartMixAnalysisStatus.done + '/' + smartMixAnalysisStatus.total;
+    } else {
+      smartMixesDesc.textContent = 'Auto-built from your genres, decades, and tempo — no setup needed.';
+    }
+  }
+  onSmartMixAnalysisProgress(() => {
+    updateSmartMixesDesc();
+    // Re-render only while the Smart Mixes screen is actually visible —
+    // a background sweep can run for a long time on a big library and
+    // there's no reason to touch the DOM once someone's navigated away.
+    if (!panels['tab-playlists'].hidden) renderSmartMixes();
+  });
 
   function renderPlaylistsTab(){
     playlistsTabList.innerHTML = '';
@@ -3938,6 +4154,9 @@
     if (groupFilter) {
       if (groupFilter.type === 'album') list = list.filter(t => (t.tagAlbum || 'Unknown Album') === groupFilter.value);
       else if (groupFilter.type === 'artist') list = list.filter(t => (t.tagArtist || 'Unknown Artist') === groupFilter.value);
+      else if (groupFilter.type === 'genre') list = list.filter(t => t.tagGenre === groupFilter.value);
+      else if (groupFilter.type === 'decade') list = list.filter(t => t.tagYear && Math.floor(t.tagYear / 10) * 10 === groupFilter.value);
+      else if (groupFilter.type === 'tempo') list = list.filter(t => (groupFilter.trackIds || []).includes(t.id));
     }
     if (searchTerm.trim()) {
       const q = searchTerm.trim().toLowerCase();
@@ -4075,11 +4294,14 @@
     });
   }
 
+  const GROUP_FILTER_LABELS = { album: 'Album: ', artist: 'Artist: ', genre: 'Genre mix: ', decade: 'Decade mix: ', tempo: 'Smart mix: ' };
   function updateGroupContextBar(){
     const show = libraryViewMode === 'songs' && !!groupFilter;
     groupContextBar.hidden = !show;
     if (show) {
-      groupContextLabel.textContent = (groupFilter.type === 'album' ? 'Album: ' : 'Artist: ') + groupFilter.value;
+      const label = GROUP_FILTER_LABELS[groupFilter.type] || '';
+      const value = groupFilter.type === 'decade' ? groupFilter.value + 's' : groupFilter.value;
+      groupContextLabel.textContent = label + value;
     }
   }
 
@@ -4108,6 +4330,12 @@
   libviewAlbums.addEventListener('click', () => { groupFilter = null; setLibraryViewMode('albums'); });
   libviewArtists.addEventListener('click', () => { groupFilter = null; setLibraryViewMode('artists'); });
   btnGroupBack.addEventListener('click', () => {
+    if (groupSourceView === 'smart-mixes') {
+      groupFilter = null; groupSourceView = null;
+      setLibraryViewMode('songs');
+      selectTab('tab-playlists');
+      return;
+    }
     const back = groupSourceView || 'albums';
     groupFilter = null;
     setLibraryViewMode(back);
@@ -4968,6 +5196,7 @@
       isBackgroundHandoff = false;
       isCrossfading = false;
       analysisCache.clear();
+      resolvedAnalysisCache.clear();
       metadataCache.clear();
       updateNowPlayingArt(null);
       persistNow();
@@ -5012,6 +5241,7 @@
       isCrossfading = false;
       pendingSmartPick = null;
       analysisCache.clear();
+      resolvedAnalysisCache.clear();
       metadataCache.clear();
       updateNowPlayingArt(null);
       if ('mediaSession' in navigator) { try { navigator.mediaSession.metadata = null; } catch (e) {} }
