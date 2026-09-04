@@ -629,6 +629,8 @@
   .add-summary p { margin: 0; font-size: 0.85rem; color: var(--paper-dim); }
   .formats-note { font-size: 0.78rem; color: var(--paper-dim); line-height: 1.6; margin-top: 6px; }
   .import-result-note { font-size: 0.82rem; color: var(--paper); background: rgba(var(--brass-rgb), 0.1); border: 1px solid var(--brass); border-radius: var(--radius); padding: 10px 14px; margin-top: 10px; }
+  #import-result-skipped-list { font-size: 0.78rem; color: var(--paper-dim); max-height: 160px; overflow-y: auto; }
+  #import-result-skipped-list li { margin-bottom: 3px; word-break: break-word; }
 
   /* Settings tab */
   .settings-section { margin-bottom: 26px; }
@@ -996,6 +998,7 @@
             <option value="all">All tracks</option>
           </select>
           <button class="fav-filter" id="fav-filter-btn" aria-pressed="false">★ Favorites</button>
+          <button class="fav-filter" id="unplayed-filter-btn" aria-pressed="false">🆕 <span id="unplayed-count">0</span> unplayed</button>
           <button class="fav-filter" id="btn-toggle-select" aria-pressed="false">Select</button>
         </div>
 
@@ -1075,7 +1078,10 @@
       <p class="formats-note" style="margin-top:14px;">"Choose folder" adds every audio file inside a folder (and its subfolders) at once. It needs a fairly current version of iOS/iPadOS or desktop Safari — if it doesn't open a folder picker on your device, use "Choose files" and multi-select instead.</p>
     </div>
 
-    <p class="import-result-note mono" id="import-result-note" style="display:none;"></p>
+    <div class="import-result-note mono" id="import-result-note" style="display:none;">
+      <div id="import-result-summary"></div>
+      <ul id="import-result-skipped-list" style="margin: 8px 0 0; padding-left: 18px; display:none;"></ul>
+    </div>
 
     <div class="add-summary">
       <div>
@@ -1215,6 +1221,16 @@
 
     <div class="settings-section">
       <div class="settings-row">
+        <div>
+          <div class="label">Notification sounds</div>
+          <div class="desc">A short chime when an import finishes, and a different one when background tempo analysis for Smart Mixes finishes.</div>
+        </div>
+        <input type="checkbox" id="notify-sounds-toggle" checked aria-label="Notification sounds" />
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-row">
         <h2 style="margin:0;">Keyboard &amp; VoiceOver</h2>
         <button class="btn-ghost" id="btn-toggle-shortcuts" aria-pressed="true">Hide shortcuts</button>
       </div>
@@ -1310,6 +1326,7 @@
   const eqLowValue = document.getElementById('eq-low-value');
   const eqMidValue = document.getElementById('eq-mid-value');
   const eqHighValue = document.getElementById('eq-high-value');
+  const notifySoundsToggle = document.getElementById('notify-sounds-toggle');
 
   const libraryEmpty = document.getElementById('library-empty');
   const libraryContent = document.getElementById('library-content');
@@ -1333,11 +1350,15 @@
   const searchInput = document.getElementById('search-input');
   const sortSelect = document.getElementById('sort-select');
   const favFilterBtn = document.getElementById('fav-filter-btn');
+  const unplayedFilterBtn = document.getElementById('unplayed-filter-btn');
+  const unplayedCountLabel = document.getElementById('unplayed-count');
   const gotoAddFromEmpty = document.getElementById('goto-add-from-empty');
   const pickerDropzone = document.getElementById('picker-dropzone');
 
   const addSummaryCount = document.getElementById('add-summary-count');
   const importResultNote = document.getElementById('import-result-note');
+  const importResultSummary = document.getElementById('import-result-summary');
+  const importResultSkippedList = document.getElementById('import-result-skipped-list');
   const btnClearLibrary = document.getElementById('btn-clear-library');
   const btnResetAll = document.getElementById('btn-reset-all');
   const btnExportData = document.getElementById('btn-export-data');
@@ -1464,6 +1485,7 @@
   let searchTerm = '';
   let sortMode = 'added';
   let favOnly = false;
+  let unplayedOnly = false;
   let sleepTimeoutId = null;
   let sleepEndOfTrack = false;
   let nextId = 1;
@@ -1504,6 +1526,7 @@
   const STORAGE_KEY_DAILY_LOG = 'spool_daily_log_v1';
   const STORAGE_KEY_SHORTCUTS_VISIBLE = 'spool_shortcuts_visible_v1';
   const STORAGE_KEY_EQ = 'spool_custom_eq_v1';
+  const STORAGE_KEY_NOTIFY_SOUNDS = 'spool_notify_sounds_v1';
   let storageAvailable = false;
   try {
     const testKey = '__spool_test__';
@@ -1844,6 +1867,62 @@
   }
 
   function announce(msg){ status.textContent = msg; }
+
+  // ---------- Notification chimes ----------
+  // Distinct, purely audible cues (independent of the VoiceOver announcement
+  // text) for two background events that finish without anyone actively
+  // watching the screen: a library import, and a Smart Mixes tempo-analysis
+  // sweep. Uses its own tiny AudioContext so it never touches the main
+  // playback graph (spatial audio, EQ, crossfade decks).
+  let notifySoundsOn = true;
+  if (storageAvailable) {
+    try { const saved = window.localStorage.getItem(STORAGE_KEY_NOTIFY_SOUNDS); if (saved !== null) notifySoundsOn = saved === '1'; } catch (e) {}
+  }
+  let notifyCtx = null;
+  function getNotifyCtx(){
+    if (!notifyCtx) {
+      try { notifyCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return null; }
+    }
+    if (notifyCtx.state === 'suspended') notifyCtx.resume().catch(() => {});
+    return notifyCtx;
+  }
+  function playChimeTone(ctx, freq, startTime, duration, peakGain){
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0, startTime);
+    gain.gain.linearRampToValueAtTime(peakGain, startTime + 0.015);
+    gain.gain.linearRampToValueAtTime(0, startTime + duration);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(startTime);
+    osc.stop(startTime + duration + 0.02);
+  }
+  function playImportCompleteChime(){
+    if (!notifySoundsOn) return;
+    const ctx = getNotifyCtx();
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    playChimeTone(ctx, 660, t, 0.12, 0.16);
+    playChimeTone(ctx, 880, t + 0.12, 0.16, 0.16);
+  }
+  function playAnalysisCompleteChime(){
+    if (!notifySoundsOn) return;
+    const ctx = getNotifyCtx();
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    playChimeTone(ctx, 523.25, t, 0.1, 0.13);
+    playChimeTone(ctx, 659.25, t + 0.1, 0.1, 0.13);
+    playChimeTone(ctx, 783.99, t + 0.2, 0.2, 0.13);
+  }
+  if (notifySoundsToggle) {
+    notifySoundsToggle.checked = notifySoundsOn;
+    notifySoundsToggle.addEventListener('change', () => {
+      notifySoundsOn = notifySoundsToggle.checked;
+      if (storageAvailable) { try { window.localStorage.setItem(STORAGE_KEY_NOTIFY_SOUNDS, notifySoundsOn ? '1' : '0'); } catch (e) {} }
+    });
+  }
 
   const KNOWN_FORMATS = ['MP3','FLAC','M4A','AAC','WAV','OGG','WEBM','OPUS'];
   function getFormat(filename){
@@ -2724,8 +2803,10 @@
       // Yield between tracks so a long sweep never blocks playback/UI.
       await new Promise(r => setTimeout(r, 60));
     }
+    const finishedNormally = smartMixAnalysisStatus.running && smartMixAnalysisStatus.done === smartMixAnalysisStatus.total;
     smartMixAnalysisStatus.running = false;
     notifySmartMixAnalysisProgress();
+    if (finishedNormally) playAnalysisCompleteChime();
   }
 
   function stopSmartMixAnalysisSweep(){
@@ -4308,6 +4389,7 @@
   function getFilteredSortedTracks(){
     let list = tracks.map((t, i) => ({...t, originalIndex: i}));
     if (favOnly) list = list.filter(t => t.favorite);
+    if (unplayedOnly) list = list.filter(t => !t.playCount);
     if (playlistFilterId !== 'all') list = list.filter(t => (t.playlistIds || []).includes(playlistFilterId));
     if (groupFilter) {
       if (groupFilter.type === 'album') list = list.filter(t => (t.tagAlbum || 'Unknown Album') === groupFilter.value);
@@ -4654,6 +4736,9 @@
     });
 
     playlistCount.textContent = list.length + (list.length === 1 ? ' track' : ' tracks') + (list.length !== tracks.length ? ' (filtered)' : '');
+    const unplayedCount = tracks.reduce((n, t) => n + (t.playCount ? 0 : 1), 0);
+    unplayedCountLabel.textContent = unplayedCount;
+    unplayedFilterBtn.setAttribute('aria-label', unplayedCount + (unplayedCount === 1 ? ' track' : ' tracks') + " you haven't played yet — filter to them");
     const totalSize = tracks.reduce((sum, t) => sum + (t.size || 0), 0);
     addSummaryCount.textContent = tracks.length + (tracks.length === 1 ? ' track in your library' : ' tracks in your library') + (totalSize ? ' · ' + formatBytes(totalSize) : '');
 
@@ -5151,9 +5236,27 @@
     return normalizeForDedupe((originalFilename || '').replace(/\.[^/.]+$/, '')) + '|' + (size || 0);
   }
 
-  function showImportResult(msg){
-    importResultNote.textContent = msg;
+  const MAX_SKIPPED_NAMES_SHOWN = 15;
+  function showImportResult(msg, skippedNames){
+    importResultSummary.textContent = msg;
     importResultNote.style.display = 'block';
+    if (skippedNames && skippedNames.length) {
+      importResultSkippedList.innerHTML = '';
+      skippedNames.slice(0, MAX_SKIPPED_NAMES_SHOWN).forEach(name => {
+        const li = document.createElement('li');
+        li.textContent = name;
+        importResultSkippedList.appendChild(li);
+      });
+      if (skippedNames.length > MAX_SKIPPED_NAMES_SHOWN) {
+        const li = document.createElement('li');
+        li.textContent = '…and ' + (skippedNames.length - MAX_SKIPPED_NAMES_SHOWN) + ' more.';
+        importResultSkippedList.appendChild(li);
+      }
+      importResultSkippedList.style.display = 'block';
+    } else {
+      importResultSkippedList.style.display = 'none';
+      importResultSkippedList.innerHTML = '';
+    }
   }
 
   function handleFiles(fileList){
@@ -5172,16 +5275,18 @@
     // in case overlapping folders were picked.
     const existingKeys = new Set(tracks.map(t => existingFileKey(t.originalFilename, t.size)));
     let skippedCount = 0;
+    const skippedNames = [];
     const files = audioFiles.filter(f => {
       const key = existingFileKey(f.name, f.size);
-      if (existingKeys.has(key)) { skippedCount++; return false; }
+      if (existingKeys.has(key)) { skippedCount++; skippedNames.push(f.name); return false; }
       existingKeys.add(key);
       return true;
     });
     if (!files.length) {
       const msg = skippedCount + (skippedCount === 1 ? ' track was' : ' tracks were') + ' already in your library — nothing new to add.';
       announce(msg);
-      showImportResult(msg);
+      showImportResult(msg, skippedNames);
+      playImportCompleteChime();
       return;
     }
     const wasEmpty = tracks.length === 0;
@@ -5231,11 +5336,13 @@
       loadTrack(0, false);
       const msg = tracks.length + ' tracks added to your library. First track ready to play.' + (matchedCount ? ' Restored saved details for ' + matchedCount + '.' : '') + (skippedCount ? ' Skipped ' + skippedCount + (skippedCount === 1 ? ' track' : ' tracks') + ' already in your library.' : '');
       announce(msg);
-      if (skippedCount) showImportResult(msg);
+      if (skippedCount) showImportResult(msg, skippedNames);
+      playImportCompleteChime();
     } else {
       const msg = newTracks.length + ' more tracks added to your library.' + (matchedCount ? ' Restored saved details for ' + matchedCount + '.' : '') + (skippedCount ? ' Skipped ' + skippedCount + (skippedCount === 1 ? ' duplicate' : ' duplicates') + ' already in your library.' : '');
       announce(msg);
-      if (skippedCount) showImportResult(msg);
+      if (skippedCount) showImportResult(msg, skippedNames);
+      playImportCompleteChime();
     }
   }
 
@@ -5386,7 +5493,7 @@
       tracks.forEach(t => { URL.revokeObjectURL(t.url); if (t.artworkUrl) URL.revokeObjectURL(t.artworkUrl); });
       tracks = [];
       currentIndex = -1;
-      shuffleOn = false; repeatMode = 'off'; searchTerm=''; sortMode='added'; favOnly=false; renamingIndex = null;
+      shuffleOn = false; repeatMode = 'off'; searchTerm=''; sortMode='added'; favOnly=false; unplayedOnly=false; renamingIndex = null;
       playlists = []; playlistFilterId = 'all'; selectionMode = false; selectedIds.clear();
       groupFilter = null; groupSourceView = null; libraryViewMode = 'songs';
       clearStats();
@@ -5415,7 +5522,7 @@
       btnShuffle.setAttribute('aria-pressed', 'false'); btnShuffle.setAttribute('aria-label', 'Shuffle: off');
       btnRepeat.setAttribute('aria-pressed', 'false'); btnRepeat.setAttribute('aria-label', 'Repeat: off');
       btnToggleSelect.setAttribute('aria-pressed', 'false'); btnToggleSelect.textContent = 'Select';
-      searchInput.value=''; sortSelect.value='added'; favFilterBtn.setAttribute('aria-pressed','false');
+      searchInput.value=''; sortSelect.value='added'; favFilterBtn.setAttribute('aria-pressed','false'); unplayedFilterBtn.setAttribute('aria-pressed','false');
       renderPlaylistFilterOptions();
       renderPlaylistsTab();
       clearSleepTimer();
@@ -5631,6 +5738,11 @@
     favFilterBtn.setAttribute('aria-pressed', favOnly ? 'true' : 'false');
     renderPlaylist();
   });
+  unplayedFilterBtn.addEventListener('click', () => {
+    unplayedOnly = !unplayedOnly;
+    unplayedFilterBtn.setAttribute('aria-pressed', unplayedOnly ? 'true' : 'false');
+    renderPlaylist();
+  });
 
   btnJumpNowPlaying.addEventListener('click', () => {
     if (currentIndex === -1) return;
@@ -5640,6 +5752,7 @@
     if (!visible) {
       searchTerm = ''; searchInput.value = '';
       favOnly = false; favFilterBtn.setAttribute('aria-pressed', 'false');
+      unplayedOnly = false; unplayedFilterBtn.setAttribute('aria-pressed', 'false');
       playlistFilterId = 'all'; playlistFilterSelect.value = 'all';
       renderPlaylist();
     }
