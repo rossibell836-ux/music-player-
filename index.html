@@ -3669,15 +3669,25 @@
       .map(t => ({ t, a: resolvedAnalysisCache.get(t.id) }))
       .filter(x => x.a && typeof x.a.bpm === 'number');
     if (analyzed.length >= MIN_MIX_SIZE) {
-      const buckets = [
-        { name: 'Chill Mix', test: a => a.bpm < 100 },
-        { name: 'Groove Mix', test: a => a.bpm >= 100 && a.bpm < 130 },
-        { name: 'Energetic Mix', test: a => a.bpm >= 130 },
-      ];
-      buckets.forEach(b => {
-        const list = analyzed.filter(x => b.test(x.a)).map(x => x.t);
-        if (list.length >= MIN_MIX_SIZE) mixes.push({ type: 'tempo', value: b.name, name: b.name, tracks: list });
+      // Tempo mood, split into even-sized tiers by percentile rather than
+      // fixed BPM cutoffs — a library that skews slow or fast still ends up
+      // with several usable moods instead of one giant bucket and empty ones.
+      const tempoTierNames = ['Chill Mix', 'Mellow Mix', 'Groove Mix', 'Upbeat Mix', 'Energetic Mix'];
+      const byBpm = [...analyzed].sort((a, b) => a.a.bpm - b.a.bpm);
+      const tierSize = Math.ceil(byBpm.length / tempoTierNames.length);
+      tempoTierNames.forEach((name, i) => {
+        const slice = byBpm.slice(i * tierSize, (i + 1) * tierSize);
+        if (slice.length >= MIN_MIX_SIZE) mixes.push({ type: 'tempo', value: name, name, tracks: slice.map(x => x.t) });
       });
+
+      // A second, independent mood axis: loudness/intensity, regardless of
+      // tempo — a slow song can still hit hard, and a fast one can stay soft.
+      const byEnergy = [...analyzed].sort((a, b) => a.a.energy - b.a.energy);
+      const tercile = Math.floor(byEnergy.length / 3);
+      if (tercile >= MIN_MIX_SIZE) {
+        mixes.push({ type: 'tempo', value: 'Quiet Mix', name: 'Quiet Mix', tracks: byEnergy.slice(0, tercile).map(x => x.t) });
+        mixes.push({ type: 'tempo', value: 'Loud & Intense Mix', name: 'Loud & Intense Mix', tracks: byEnergy.slice(byEnergy.length - tercile).map(x => x.t) });
+      }
     }
     return mixes;
   }
