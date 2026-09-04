@@ -1231,6 +1231,16 @@
 
     <div class="settings-section">
       <div class="settings-row">
+        <div>
+          <div class="label">Keep effects on lock screen (experimental)</div>
+          <div class="desc">iOS normally mutes the 3D/8D and EQ effects the moment you lock your screen or switch apps, and Spool quietly swaps to plain playback so the music doesn't stop. Turning this on tries to keep the processed audio running instead — it may work, or it may glitch or go silent, depending on your device. Leave it off if that happens.</div>
+        </div>
+        <input type="checkbox" id="keep-effects-bg-toggle" aria-label="Keep effects on lock screen (experimental)" />
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-row">
         <h2 style="margin:0;">Keyboard &amp; VoiceOver</h2>
         <button class="btn-ghost" id="btn-toggle-shortcuts" aria-pressed="true">Hide shortcuts</button>
       </div>
@@ -1327,6 +1337,7 @@
   const eqMidValue = document.getElementById('eq-mid-value');
   const eqHighValue = document.getElementById('eq-high-value');
   const notifySoundsToggle = document.getElementById('notify-sounds-toggle');
+  const keepEffectsBgToggle = document.getElementById('keep-effects-bg-toggle');
 
   const libraryEmpty = document.getElementById('library-empty');
   const libraryContent = document.getElementById('library-content');
@@ -1527,6 +1538,7 @@
   const STORAGE_KEY_SHORTCUTS_VISIBLE = 'spool_shortcuts_visible_v1';
   const STORAGE_KEY_EQ = 'spool_custom_eq_v1';
   const STORAGE_KEY_NOTIFY_SOUNDS = 'spool_notify_sounds_v1';
+  const STORAGE_KEY_KEEP_EFFECTS_BG = 'spool_keep_effects_bg_v1';
   let storageAvailable = false;
   try {
     const testKey = '__spool_test__';
@@ -1921,6 +1933,24 @@
     notifySoundsToggle.addEventListener('change', () => {
       notifySoundsOn = notifySoundsToggle.checked;
       if (storageAvailable) { try { window.localStorage.setItem(STORAGE_KEY_NOTIFY_SOUNDS, notifySoundsOn ? '1' : '0'); } catch (e) {} }
+    });
+  }
+
+  // Experimental, opt-in, off by default: see the toggle's description in
+  // Settings and the note above handoffToBackground() for why this exists
+  // and why it isn't the default.
+  let keepEffectsInBackground = false;
+  if (storageAvailable) {
+    try { keepEffectsInBackground = window.localStorage.getItem(STORAGE_KEY_KEEP_EFFECTS_BG) === '1'; } catch (e) {}
+  }
+  if (keepEffectsBgToggle) {
+    keepEffectsBgToggle.checked = keepEffectsInBackground;
+    keepEffectsBgToggle.addEventListener('change', () => {
+      keepEffectsInBackground = keepEffectsBgToggle.checked;
+      if (storageAvailable) { try { window.localStorage.setItem(STORAGE_KEY_KEEP_EFFECTS_BG, keepEffectsInBackground ? '1' : '0'); } catch (e) {} }
+      // Switching this off mid-background-session should still fall back
+      // safely rather than wait for the next lock/unlock cycle.
+      if (!keepEffectsInBackground && document.visibilityState === 'hidden') handoffToBackground();
     });
   }
 
@@ -5077,6 +5107,7 @@
   }
 
   function handoffToBackground(){
+    if (keepEffectsInBackground) return;
     if (!audioCtx || audio.paused || isBackgroundHandoff || isCrossfading) return;
     bgAudio.src = audio.src;
     bgAudio.currentTime = audio.currentTime;
