@@ -3685,6 +3685,11 @@
   function playSmartMix(mix, shuffle){
     const list = tracks.map((t, i) => ({ ...t, originalIndex: i })).filter(t => mix.tracks.some(mt => mt.id === t.id));
     if (!list.length) { announce('This mix has no tracks right now.'); return; }
+    // A mix is built from the whole library, ignoring whatever filters
+    // happen to be set — so any of those left on (Favorites, Unplayed, a
+    // playlist, a typed search) would silently hide mix tracks that don't
+    // also match it, making the mix look empty. Clear them on the way in.
+    clearLibraryFiltersForGroupEntry();
     if (mix.type === 'tempo') groupFilter = { type: 'tempo', value: mix.value, trackIds: mix.tracks.map(t => t.id) };
     else groupFilter = { type: mix.type, value: mix.value };
     groupSourceView = 'smart-mixes';
@@ -4494,6 +4499,17 @@
     return li;
   }
 
+  // A grouped browsing view (album/artist/smart mix) is built from the
+  // whole library, ignoring the Library tab's own filters — so leaving any
+  // of those on would silently hide group tracks that don't also match,
+  // making a full group look incomplete or empty.
+  function clearLibraryFiltersForGroupEntry(){
+    favOnly = false; favFilterBtn.setAttribute('aria-pressed', 'false');
+    unplayedOnly = false; unplayedFilterBtn.setAttribute('aria-pressed', 'false');
+    playlistFilterId = 'all'; playlistFilterSelect.value = 'all';
+    searchTerm = ''; searchInput.value = '';
+  }
+
   function renderAlbumsGrid(){
     updateLibraryEmptyState();
     albumsGrid.innerHTML = '';
@@ -4507,6 +4523,7 @@
     }
     groups.forEach(g => {
       albumsGrid.appendChild(buildGroupCard(g, 'album', () => {
+        clearLibraryFiltersForGroupEntry();
         groupFilter = { type: 'album', value: g.name };
         groupSourceView = 'albums';
         setLibraryViewMode('songs');
@@ -4527,6 +4544,7 @@
     }
     groups.forEach(g => {
       artistsGrid.appendChild(buildGroupCard(g, 'artist', () => {
+        clearLibraryFiltersForGroupEntry();
         groupFilter = { type: 'artist', value: g.name };
         groupSourceView = 'artists';
         setLibraryViewMode('songs');
