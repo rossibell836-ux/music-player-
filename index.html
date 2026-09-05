@@ -2754,11 +2754,27 @@
     return entry;
   }
 
+  // A dedicated AudioContext just for decodeAudioData() below, kept
+  // completely separate from the main playback audioCtx. This used to
+  // reuse the playback context — but decoding a full track (especially a
+  // big FLAC) is real CPU work, and doing that on the very same audio
+  // context that's simultaneously rendering live playback/crossfade could
+  // starve it, which looked like music randomly going silent or failing to
+  // start right when the background tempo-analysis sweep was mid-track.
+  let analysisCtx = null;
+  function getAnalysisCtx(){
+    if (!analysisCtx) {
+      try { analysisCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return null; }
+    }
+    return analysisCtx;
+  }
+
   async function analyzeTrackAudio(track){
-    ensureAudioGraph();
+    const ctx = getAnalysisCtx();
+    if (!ctx) return null;
     const res = await fetch(track.url);
     const arrBuf = await res.arrayBuffer();
-    const buffer = await audioCtx.decodeAudioData(arrBuf);
+    const buffer = await ctx.decodeAudioData(arrBuf);
     const data = buffer.getChannelData(0);
     const sampleRate = buffer.sampleRate;
 
@@ -4914,6 +4930,24 @@
     return t.tagArtist ? (t.tagArtist + ' — ' + base) : base;
   }
 
+  // Single source of truth for the title/artist/art shown in the mini
+  // player and the Now Playing screen. Track changes that happen while
+  // backgrounded (bgAudio auto-advancing at end-of-track, or Magic Tap/lock
+  // screen play catching up after a track finished while locked) used to
+  // update currentIndex and the lock screen's metadata but not these — so
+  // re-opening the app could show the previous track's name/art even
+  // though a different one was actually playing.
+  function updateNowPlayingDisplay(t, index){
+    trackTitle.textContent = t.tagTitle || t.name;
+    trackSub.textContent = trackSubtitle(t, index);
+    miniTrackTitle.textContent = t.tagTitle || t.name;
+    miniTrackSub.textContent = trackSubtitle(t, index) + ' — tap to open Now Playing';
+    btnFavCurrent.setAttribute('aria-pressed', t.favorite ? 'true' : 'false');
+    btnFavCurrent.setAttribute('aria-label', t.favorite ? 'Remove current track from favorites' : 'Add current track to favorites');
+    updateNowPlayingArt(t);
+    updateMediaSessionMetadata();
+  }
+
   function loadTrack(index, autoplay){
     if (index < 0 || index >= tracks.length) return;
     currentIndex = index;
@@ -4929,14 +4963,7 @@
     }
     markShufflePlayed(t);
     audio.src = t.url;
-    trackTitle.textContent = t.tagTitle || t.name;
-    trackSub.textContent = trackSubtitle(t, index);
-    miniTrackTitle.textContent = t.tagTitle || t.name;
-    miniTrackSub.textContent = trackSubtitle(t, index) + ' — tap to open Now Playing';
-    btnFavCurrent.setAttribute('aria-pressed', t.favorite ? 'true' : 'false');
-    btnFavCurrent.setAttribute('aria-label', t.favorite ? 'Remove current track from favorites' : 'Add current track to favorites');
-    updateNowPlayingArt(t);
-    updateMediaSessionMetadata();
+    updateNowPlayingDisplay(t, index);
     if (!t.tagTitle && !t.tagArtist && !t.tagAlbum) getTrackMetadata(t);
     renderPlaylist();
     if (!npOverlay.hidden) renderUpNext();
@@ -4968,7 +4995,8 @@
           bgAudio.currentTime = 0;
           bgAudio.play().then(() => {
             updatePlayButton(true);
-            updateMediaSessionMetadata();
+            updateNowPlayingDisplay(t, currentIndex);
+            renderPlaylist();
             getTrackMetadata(t);
             persistNow();
           }).catch(() => announce('Could not play this track.'));
@@ -5146,7 +5174,7 @@
       isBackgroundHandoff = false;
       updatePlayButton(true);
       updateMediaSessionPosition();
-      if (needsReload) renderPlaylist();
+      if (needsReload) { updateNowPlayingDisplay(currentTrack, currentIndex); renderPlaylist(); }
     }).catch(() => {});
   }
 
@@ -5168,7 +5196,8 @@
     bgAudio.src = t.url;
     bgAudio.currentTime = 0;
     bgAudio.play().catch(() => { isBackgroundHandoff = false; });
-    updateMediaSessionMetadata();
+    updateNowPlayingDisplay(t, currentIndex);
+    renderPlaylist();
     getTrackMetadata(t);
   });
   bgAudio.addEventListener('timeupdate', () => { if (isBackgroundHandoff) { updateMediaSessionPosition(); trackListeningProgress(bgAudio); } });
