@@ -1509,6 +1509,7 @@
   let libraryViewMode = 'songs'; // 'songs' | 'albums' | 'artists'
   let dailyListenLog = {}; // { 'YYYY-MM-DD': secondsListenedThatDay }
   let lastListenTickTime = null; // audio.currentTime (or bgAudio's) at the last progress tick, for computing deltas
+  let playCountedForCurrentIndex = false; // whether the current track has already been credited as "played" this listen — see trackListeningProgress()
   let statsDirty = false;
   let statsSaveTimer = null;
   let groupFilter = null; // { type: 'album'|'artist', value: string } | null
@@ -2040,6 +2041,15 @@
   // listening time for the current track and today's daily total. Guards
   // against counting seeks/skips (large jumps) or the gap across a pause as
   // "listened" time.
+  //
+  // This is also what decides whether a track counts as "played" for
+  // playCount / lastPlayedAt / the Unplayed filter — not simply loading or
+  // starting it. Counting on load meant skimming past several tracks in a
+  // few seconds each (e.g. skipping ahead while looking for a song) marked
+  // all of them played, while resuming a track that was only restored (not
+  // freshly loaded) after reopening the app never counted at all even after
+  // listening to the whole thing. Tying it to real accumulated listening
+  // time fixes both.
   function trackListeningProgress(el){
     const t = tracks[currentIndex];
     if (!t || el.paused) { lastListenTickTime = null; return; }
@@ -2051,6 +2061,15 @@
         const key = dateKeyFor(new Date());
         dailyListenLog[key] = (dailyListenLog[key] || 0) + delta;
         markStatsDirty();
+        if (!playCountedForCurrentIndex) {
+          const threshold = Math.min(20, (t.duration || 20) * 0.9);
+          if (t.listenSeconds >= threshold) {
+            playCountedForCurrentIndex = true;
+            t.playCount = (t.playCount || 0) + 1;
+            t.lastPlayedAt = Date.now();
+            renderPlaylist();
+          }
+        }
       }
     }
     lastListenTickTime = now;
@@ -2832,6 +2851,26 @@
   function onSmartMixAnalysisProgress(fn){ smartMixAnalysisStatus.listeners.push(fn); }
   function notifySmartMixAnalysisProgress(){ smartMixAnalysisStatus.listeners.forEach(fn => { try { fn(smartMixAnalysisStatus); } catch (e) {} }); }
 
+  // computeSmartMixes() only ever reads resolvedAnalysisCache (in memory) —
+  // it never hits IndexedDB itself, since it needs to run synchronously.
+  // getTrackAnalysis() only fills that cache for tracks it's actually asked
+  // to analyze, and the sweep below skips any track already analyzed in a
+  // previous session. Put those together and every tempo/mood mix (Chill,
+  // Groove, Quiet, ...) would come back empty on every session after the
+  // first, even though the results are sitting right there in IndexedDB —
+  // nothing had ever loaded them back into memory. This does, once.
+  let analysisCacheWarmed = false;
+  async function warmResolvedAnalysisCache(){
+    if (analysisCacheWarmed) return;
+    analysisCacheWarmed = true;
+    const rows = await dbGetAll('analysis');
+    let added = false;
+    rows.forEach(r => {
+      if (r && typeof r.bpm === 'number' && !resolvedAnalysisCache.has(r.id)) { resolvedAnalysisCache.set(r.id, r); added = true; }
+    });
+    if (added && !panels['tab-playlists'].hidden) renderSmartMixes();
+  }
+
   async function runSmartMixAnalysisSweep(){
     if (smartMixAnalysisStatus.running) return;
     const doneKeys = new Set(await dbGetAllKeys('analysis'));
@@ -3433,17 +3472,9 @@
     const handoffTime = audioB.currentTime;
     currentIndex = targetIndex;
     lastListenTickTime = null; // new track — don't count the crossfade position jump as listened time
-    toTrack.lastPlayedAt = Date.now();
-    toTrack.playCount = (toTrack.playCount || 0) + 1;
+    playCountedForCurrentIndex = false; // counted once real listening time on it crosses the threshold, not just by starting it
     markShufflePlayed(toTrack);
-    trackTitle.textContent = toTrack.tagTitle || toTrack.name;
-    trackSub.textContent = trackSubtitle(toTrack, targetIndex);
-    miniTrackTitle.textContent = toTrack.tagTitle || toTrack.name;
-    miniTrackSub.textContent = trackSubtitle(toTrack, targetIndex) + ' — tap to open Now Playing';
-    btnFavCurrent.setAttribute('aria-pressed', toTrack.favorite ? 'true' : 'false');
-    btnFavCurrent.setAttribute('aria-label', toTrack.favorite ? 'Remove current track from favorites' : 'Add current track to favorites');
-    updateNowPlayingArt(toTrack);
-    updateMediaSessionMetadata();
+    updateNowPlayingDisplay(toTrack, targetIndex);
     getTrackMetadata(toTrack);
 
     await new Promise(res => {
@@ -3546,6 +3577,7 @@
     });
     if (tabId === 'tab-playlists') {
       renderSmartMixes();
+      warmResolvedAnalysisCache();
       runSmartMixAnalysisSweep();
     }
   }
@@ -4953,14 +4985,8 @@
     currentIndex = index;
     playAttemptInProgress = false; // starting fresh — don't let a stale in-flight recovery attempt block this
     lastListenTickTime = null; // new track — don't count the jump as listened time
+    playCountedForCurrentIndex = false; // counted once real listening time on it crosses the threshold — see trackListeningProgress()
     const t = tracks[index];
-    if (autoplay) {
-      // Only count this as an actual play — not the silent restore-on-load
-      // preview, which would otherwise make "Recently played" and Track
-      // Details show a track as just-played every time the app reopens.
-      t.lastPlayedAt = Date.now();
-      t.playCount = (t.playCount || 0) + 1;
-    }
     markShufflePlayed(t);
     audio.src = t.url;
     updateNowPlayingDisplay(t, index);
@@ -4987,9 +5013,9 @@
         const next = advanceIndex(true);
         if (next !== null && tracks[next]) {
           currentIndex = next;
+          lastListenTickTime = null; // new track — don't count the jump as listened time
+          playCountedForCurrentIndex = false; // counted once real listening time on it crosses the threshold
           const t = tracks[currentIndex];
-          t.lastPlayedAt = Date.now();
-          t.playCount = (t.playCount || 0) + 1;
           markShufflePlayed(t);
           bgAudio.src = t.url;
           bgAudio.currentTime = 0;
@@ -5189,9 +5215,8 @@
     if (next === null || !tracks[next]) { isBackgroundHandoff = false; updatePlayButton(false); return; }
     currentIndex = next;
     lastListenTickTime = null; // new track — don't count the jump as listened time
+    playCountedForCurrentIndex = false; // counted once real listening time on it crosses the threshold
     const t = tracks[currentIndex];
-    t.lastPlayedAt = Date.now();
-    t.playCount = (t.playCount || 0) + 1;
     markShufflePlayed(t);
     bgAudio.src = t.url;
     bgAudio.currentTime = 0;
@@ -5550,6 +5575,7 @@
       isCrossfading = false;
       analysisCache.clear();
       resolvedAnalysisCache.clear();
+      analysisCacheWarmed = false;
       metadataCache.clear();
       updateNowPlayingArt(null);
       persistNow();
@@ -5595,6 +5621,7 @@
       pendingSmartPick = null;
       analysisCache.clear();
       resolvedAnalysisCache.clear();
+      analysisCacheWarmed = false;
       metadataCache.clear();
       updateNowPlayingArt(null);
       if ('mediaSession' in navigator) { try { navigator.mediaSession.metadata = null; } catch (e) {} }
@@ -5961,7 +5988,20 @@
     }
   });
   window.addEventListener('pagehide', () => { handoffToBackground(); if (statsDirty) saveStatsNow(); });
-  window.addEventListener('blur', () => { handoffToBackground(); });
+  window.addEventListener('blur', () => {
+    // On iOS, `blur` can fire spuriously from VoiceOver moving focus around
+    // within the page itself — not just from genuinely switching apps —
+    // and treating every one of those as "gone to background" was pausing
+    // playback for good, with nothing left to bring it back. A real
+    // backgrounding event reliably flips document.visibilityState to
+    // 'hidden' within a beat; a same-page VoiceOver focus shift never does.
+    // Waiting briefly to check that keeps blur as an early signal for real
+    // app-switches (which still fire it before visibilitychange sometimes)
+    // without reacting to the false ones.
+    setTimeout(() => {
+      if (document.visibilityState === 'hidden') handoffToBackground();
+    }, 150);
+  });
   window.addEventListener('pageshow', () => {
     handoffToForeground();
     if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
