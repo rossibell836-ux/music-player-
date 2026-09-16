@@ -1241,6 +1241,16 @@
 
     <div class="settings-section">
       <div class="settings-row">
+        <div>
+          <div class="label">Analyze tempo right after importing</div>
+          <div class="desc">By default, tempo analysis for Smart Mixes only starts once you open the Playlists tab. Turning this on starts it the moment an import finishes instead — useful if you'd rather get it out of the way, but it means your device gets busy decoding audio right after a big import.</div>
+        </div>
+        <input type="checkbox" id="analyze-on-import-toggle" aria-label="Analyze tempo right after importing" />
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <div class="settings-row">
         <h2 style="margin:0;">Keyboard &amp; VoiceOver</h2>
         <button class="btn-ghost" id="btn-toggle-shortcuts" aria-pressed="true">Hide shortcuts</button>
       </div>
@@ -1338,6 +1348,7 @@
   const eqHighValue = document.getElementById('eq-high-value');
   const notifySoundsToggle = document.getElementById('notify-sounds-toggle');
   const keepEffectsBgToggle = document.getElementById('keep-effects-bg-toggle');
+  const analyzeOnImportToggle = document.getElementById('analyze-on-import-toggle');
 
   const libraryEmpty = document.getElementById('library-empty');
   const libraryContent = document.getElementById('library-content');
@@ -1540,6 +1551,7 @@
   const STORAGE_KEY_EQ = 'spool_custom_eq_v1';
   const STORAGE_KEY_NOTIFY_SOUNDS = 'spool_notify_sounds_v1';
   const STORAGE_KEY_KEEP_EFFECTS_BG = 'spool_keep_effects_bg_v1';
+  const STORAGE_KEY_ANALYZE_ON_IMPORT = 'spool_analyze_on_import_v1';
   let storageAvailable = false;
   try {
     const testKey = '__spool_test__';
@@ -1952,6 +1964,21 @@
       // Switching this off mid-background-session should still fall back
       // safely rather than wait for the next lock/unlock cycle.
       if (!keepEffectsInBackground && document.visibilityState === 'hidden') handoffToBackground();
+    });
+  }
+
+  // Opt-in: by default the tempo-analysis sweep only starts once someone
+  // opens Playlists (see selectTab), so a big import doesn't also saddle
+  // the device with decoding hundreds of files it didn't ask for yet.
+  let analyzeOnImport = false;
+  if (storageAvailable) {
+    try { analyzeOnImport = window.localStorage.getItem(STORAGE_KEY_ANALYZE_ON_IMPORT) === '1'; } catch (e) {}
+  }
+  if (analyzeOnImportToggle) {
+    analyzeOnImportToggle.checked = analyzeOnImport;
+    analyzeOnImportToggle.addEventListener('change', () => {
+      analyzeOnImport = analyzeOnImportToggle.checked;
+      if (storageAvailable) { try { window.localStorage.setItem(STORAGE_KEY_ANALYZE_ON_IMPORT, analyzeOnImport ? '1' : '0'); } catch (e) {} }
     });
   }
 
@@ -3447,6 +3474,13 @@
 
     ensureAudioGraph();
     if (audioCtx.state === 'suspended') { try { await audioCtx.resume(); } catch (e) {} }
+    // Same defensive reconnect as playAudio(): a route-change interruption
+    // (headphones/Bluetooth disconnecting) can sever an already-built
+    // graph's connections rather than just suspending the context. Cheap
+    // and harmless if already connected, but without it a crossfade that
+    // starts right after such an interruption could run through silently —
+    // both decks appearing to play, nothing actually audible.
+    try { masterGain.connect(audioCtx.destination); } catch (e) {}
     try {
       audioB.pause();
       audioB.currentTime = 0;
@@ -5177,6 +5211,19 @@
   function handoffToForeground(){
     if (!isBackgroundHandoff) return;
     ensureAudioGraph();
+    // Same safety net as playAudio()'s watchdog: audioCtx.resume() or
+    // audio.play() can occasionally hang instead of ever resolving or
+    // rejecting (a route-change interruption mid-attempt), which would
+    // otherwise leave isBackgroundHandoff stuck true forever with nothing
+    // — not even the .catch below — able to clear it.
+    let settled = false;
+    const watchdogId = setTimeout(() => {
+      if (settled || !isBackgroundHandoff) return;
+      settled = true;
+      bgAudio.pause();
+      isBackgroundHandoff = false;
+      updatePlayButton(false);
+    }, 6000);
     const resumeP = audioCtx.state === 'suspended' ? audioCtx.resume().catch(() => {}) : Promise.resolve();
     const currentTrack = tracks[currentIndex];
     // bgAudio may have auto-advanced to a different track while backgrounded
@@ -5196,12 +5243,34 @@
       audio.volume = bgAudio.volume;
       return audio.play();
     }).then(() => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(watchdogId);
       bgAudio.pause();
       isBackgroundHandoff = false;
       updatePlayButton(true);
       updateMediaSessionPosition();
       if (needsReload) { updateNowPlayingDisplay(currentTrack, currentIndex); renderPlaylist(); }
-    }).catch(() => {});
+    }).catch(() => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(watchdogId);
+      // Coming back after a long pause/background stretch can fail here —
+      // iOS may refuse a programmatic audio.play() once the page's "user
+      // activation" has expired. Previously this left isBackgroundHandoff
+      // stuck true forever, which made every future tap of Play, Pause,
+      // Next, and Previous keep trying to operate on the now-frozen
+      // background audio element instead of recovering — matching reports
+      // of playback silently dying after leaving the app for a while, with
+      // only a full page reload (or enough taps to eventually get lucky)
+      // bringing it back. Falling back to a plain "paused, in the
+      // foreground" state instead means the very next tap goes through
+      // playAudio()'s normal path, which already knows how to recover a
+      // dead audio graph on its own.
+      bgAudio.pause();
+      isBackgroundHandoff = false;
+      updatePlayButton(false);
+    });
   }
 
   // Best-effort auto-advance while playing through the background-safe
@@ -5457,6 +5526,7 @@
       if (skippedCount) showImportResult(msg, skippedNames);
       playImportCompleteChime();
     }
+    if (analyzeOnImport) { warmResolvedAnalysisCache(); runSmartMixAnalysisSweep(); }
   }
 
   fileInput.addEventListener('change', (e) => {
