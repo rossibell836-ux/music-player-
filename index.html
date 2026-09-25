@@ -1193,12 +1193,11 @@
           <div class="label">Fade between tracks</div>
           <div class="desc">Smoothly fade out and in when a track changes</div>
         </div>
-        <label for="fade-select" class="visually-hidden">Fade between tracks</label>
-        <select class="plain-select" id="fade-select">
-          <option value="0">Off</option>
-          <option value="1.5">Quick (1.5s)</option>
-          <option value="3">Smooth (3s)</option>
-        </select>
+      </div>
+      <div class="pill-row" role="group" aria-label="Fade between tracks">
+        <button class="pill" data-fade="0" aria-pressed="true">Off</button>
+        <button class="pill" data-fade="1.5" aria-pressed="false">Quick (1.5s)</button>
+        <button class="pill" data-fade="3" aria-pressed="false">Smooth (3s)</button>
       </div>
       <p class="formats-note" style="margin-top:10px;">Tracks actually overlap as they transition, and the timing adapts to how well the tempo and loudness of the two songs match. With shuffle on, the next track is picked with a bias toward songs that will blend well.</p>
     </div>
@@ -1396,7 +1395,7 @@
 
   const sleepSelect = document.getElementById('sleep-select');
   const sleepStatus = document.getElementById('sleep-status');
-  const fadeSelect = document.getElementById('fade-select');
+  const fadeButtons = document.querySelectorAll('[data-fade]');
   const themeButtons = document.querySelectorAll('[data-theme-choice]');
 
   const playlistFilterSelect = document.getElementById('playlist-filter-select');
@@ -4720,6 +4719,10 @@
       const value = groupFilter.type === 'decade' ? groupFilter.value + 's' : groupFilter.value;
       groupContextLabel.textContent = label + value;
     }
+    // The group bar's own Shuffle button already shuffles this exact same
+    // filtered set — showing the "Tracks" row's Shuffle button too, right
+    // above it, was two controls doing the identical thing at once.
+    btnShufflePlayLibrary.style.display = show ? 'none' : '';
   }
 
   function setLibraryViewMode(mode){
@@ -5053,6 +5056,14 @@
 
   function loadTrack(index, autoplay){
     if (index < 0 || index >= tracks.length) return;
+    // Jumping straight to a track — shuffle, tapping a row, Play Next, etc.
+    // — needs to fully own playback from here. If a crossfade happened to
+    // be mid-flight, deck B (audioB) would otherwise keep playing on its
+    // own, audible at the same time as the track being loaded now.
+    if (isCrossfading || !audioB.paused) {
+      isCrossfading = false;
+      audioB.pause();
+    }
     currentIndex = index;
     playAttemptInProgress = false; // starting fresh — don't let a stale in-flight recovery attempt block this
     lastListenTickTime = null; // new track — don't count the jump as listened time
@@ -5760,8 +5771,8 @@
       renderPlaylistsTab();
       clearSleepTimer();
       sleepSelect.value = 'off';
+      fadeButtons.forEach(b => b.setAttribute('aria-pressed', b.dataset.fade === '0' ? 'true' : 'false'));
       fadeDuration = 0;
-      fadeSelect.value = '0';
       if (storageAvailable) { try { window.localStorage.removeItem(STORAGE_KEY_FADE); } catch (e) {} }
       if (masterGain) masterGain.gain.value = 1;
       setTheme('dark');
@@ -6031,18 +6042,24 @@
 
   // ---------- Fade between tracks ----------
   const STORAGE_KEY_FADE = 'spool_fade_v1';
-  fadeSelect.addEventListener('change', () => {
-    fadeDuration = parseFloat(fadeSelect.value) || 0;
-    if (storageAvailable) { try { window.localStorage.setItem(STORAGE_KEY_FADE, fadeSelect.value); } catch (e) {} }
-    ensureAudioGraph();
-    armAnalysisPrefetch();
-    announce(fadeDuration ? 'Smart crossfade set to ' + fadeSelect.options[fadeSelect.selectedIndex].text : 'Crossfade turned off');
+  const fadeLabels = { '0': 'Crossfade turned off', '1.5': 'Smart crossfade set to Quick (1.5s)', '3': 'Smart crossfade set to Smooth (3s)' };
+  fadeButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      fadeButtons.forEach(b => b.setAttribute('aria-pressed', 'false'));
+      btn.setAttribute('aria-pressed', 'true');
+      fadeDuration = parseFloat(btn.dataset.fade) || 0;
+      if (storageAvailable) { try { window.localStorage.setItem(STORAGE_KEY_FADE, btn.dataset.fade); } catch (e) {} }
+      ensureAudioGraph();
+      armAnalysisPrefetch();
+      announce(fadeLabels[btn.dataset.fade] || 'Crossfade turned off');
+    });
   });
   if (storageAvailable) {
     try {
       const savedFade = window.localStorage.getItem(STORAGE_KEY_FADE);
-      if (savedFade !== null && [...fadeSelect.options].some(o => o.value === savedFade)) {
-        fadeSelect.value = savedFade;
+      const match = savedFade !== null && [...fadeButtons].find(b => b.dataset.fade === savedFade);
+      if (match) {
+        fadeButtons.forEach(b => b.setAttribute('aria-pressed', b === match ? 'true' : 'false'));
         fadeDuration = parseFloat(savedFade) || 0;
       }
     } catch (e) {}
