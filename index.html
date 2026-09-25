@@ -5992,15 +5992,18 @@
   btnJumpNowPlaying.addEventListener('click', () => {
     if (currentIndex === -1) return;
     selectTab('tab-library');
-    const trackId = tracks[currentIndex].id;
-    const visible = getFilteredSortedTracks().some(t => t.id === trackId);
-    if (!visible) {
-      searchTerm = ''; searchInput.value = '';
-      favOnly = false; favFilterBtn.setAttribute('aria-pressed', 'false');
-      unplayedOnly = false; unplayedFilterBtn.setAttribute('aria-pressed', 'false');
-      playlistFilterId = 'all'; playlistFilterSelect.value = 'all';
-      renderPlaylist();
-    }
+    // "Jump to playing" means "show me where my track sits in my library"
+    // — always land in that full context rather than leaving a stale
+    // Album/Artist/Smart Mix filter (and its own "‹ Back / Shuffle" bar)
+    // stuck on screen from an earlier visit, which used to happen because
+    // only the search/favorites/unplayed/playlist filters were cleared
+    // here, never the group filter, and this never resynced the bar.
+    groupFilter = null; groupSourceView = null;
+    searchTerm = ''; searchInput.value = '';
+    favOnly = false; favFilterBtn.setAttribute('aria-pressed', 'false');
+    unplayedOnly = false; unplayedFilterBtn.setAttribute('aria-pressed', 'false');
+    playlistFilterId = 'all'; playlistFilterSelect.value = 'all';
+    setLibraryViewMode('songs');
     requestAnimationFrame(() => {
       const li = playlistEl.querySelector('li[aria-current="true"]');
       if (li) {
