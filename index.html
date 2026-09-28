@@ -341,6 +341,7 @@
   .pp-list .pp-delete:hover { color: var(--danger); }
   .pp-empty { padding: 16px; text-align:center; color: var(--paper-dim); font-size: 0.85rem; border: 1.5px dashed var(--line); border-radius: var(--radius); margin-bottom: 14px; }
   .pp-new-row { display:flex; gap: 8px; margin-bottom: 16px; }
+  .pp-new-row[hidden] { display:none; }
   .pp-new-row input {
     flex: 1; background: var(--panel); border: 1px solid var(--line); color: var(--paper);
     padding: 10px 12px; border-radius: 999px; font-size: 0.85rem;
@@ -572,6 +573,9 @@
   li.selectable { cursor: default; }
 
   .playlist-stats { font-size: 0.76rem; color: var(--paper-dim); }
+  .custom-order-hint { font-size: 0.76rem; color: var(--paper-dim); margin: 2px 0 6px; }
+  ul.playlist li.pl-dragging { opacity: 0.5; }
+  ul.playlist li[data-pl-draggable] { position: relative; }
 
   .picker.dragover {
     border-color: var(--brass);
@@ -692,6 +696,16 @@
   .theme-toggle { display:flex; border: 1px solid var(--line); border-radius: 999px; overflow:hidden; }
   .theme-toggle button { padding: 8px 16px; font-size: 0.82rem; color: var(--paper-dim); }
   .theme-toggle button[aria-pressed="true"] { background: var(--brass); color: #1a1a1a; }
+  .accent-row { display:flex; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+  .accent-swatch {
+    width: 34px; height: 34px; border-radius: 50%; border: 2px solid transparent;
+    background: var(--sw-color); position: relative; flex-shrink: 0; padding: 0;
+  }
+  .accent-swatch[aria-pressed="true"] { border-color: var(--paper); box-shadow: 0 0 0 2px var(--sw-color); }
+  .accent-swatch[aria-pressed="true"]::after {
+    content: "✓"; position: absolute; inset: 0; display:flex; align-items:center; justify-content:center;
+    color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.6); font-size: 0.85rem; font-weight: 700;
+  }
 
   .shortcuts-list { list-style:none; margin:0; padding:0; font-size: 0.84rem; }
   .shortcuts-list li { display:flex; justify-content:space-between; padding: 7px 0; border-bottom: 1px solid var(--line); color: var(--paper-dim); }
@@ -709,7 +723,7 @@
   <header class="top">
     <div>
       <h1><span class="reel-mark" aria-hidden="true"></span>Spool</h1>
-      <p class="tagline">Play music straight from your Files app</p>
+      <p class="tagline" data-i18n="app.tagline">Play music straight from your Files app</p>
     </div>
   </header>
 
@@ -717,7 +731,7 @@
 
   <div class="toast" id="toast" role="alertdialog" aria-label="Undo available" hidden>
     <span class="toast-message" id="toast-message">Track removed</span>
-    <button id="toast-undo">Undo</button>
+    <button id="toast-undo" data-i18n="common.undo">Undo</button>
   </div>
 
   <!-- Mini player bar -->
@@ -726,8 +740,8 @@
     <div class="mini-player-inner">
       <div class="mini-reel" id="mini-reel" aria-hidden="true"></div>
       <button class="mini-track-btn" id="btn-open-now-playing">
-        <span class="mini-track-title" id="mini-track-title">No track selected</span>
-        <span class="mini-track-sub" id="mini-track-sub">Tap to open Now Playing</span>
+        <span class="mini-track-title" id="mini-track-title" data-i18n="player.noTrackSelected">No track selected</span>
+        <span class="mini-track-sub" id="mini-track-sub" data-i18n="player.tapToOpen">Tap to open Now Playing</span>
       </button>
       <button class="mini-ctrl" id="btn-mini-play" aria-label="Play">
         <svg id="mini-play-icon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
@@ -746,7 +760,7 @@
     <div class="np-dialog" id="np-dialog" role="dialog" aria-modal="true" aria-labelledby="np-heading">
       <div class="np-header">
         <button class="np-close" id="btn-close-now-playing" aria-label="Close Now Playing">✕</button>
-        <h2 id="np-heading">Now Playing</h2>
+        <h2 id="np-heading" data-i18n="player.nowPlaying">Now Playing</h2>
         <span class="np-spacer" aria-hidden="true"></span>
       </div>
 
@@ -754,7 +768,7 @@
         <div class="now-playing">
           <div class="reel" id="reel" aria-hidden="true"></div>
           <div class="track-meta">
-            <p class="track-title display" id="track-title">No track selected</p>
+            <p class="track-title display" id="track-title" data-i18n="player.noTrackSelected">No track selected</p>
             <p class="track-sub mono" id="track-sub">—</p>
           </div>
           <button class="fav-toggle-inline" id="btn-fav-current" aria-pressed="false" aria-label="Add current track to favorites">★</button>
@@ -803,7 +817,7 @@
       </section>
 
       <div class="np-upnext">
-        <h3>Up Next</h3>
+        <h3 data-i18n="player.upNext">Up Next</h3>
         <ul class="np-upnext-list" id="np-upnext-list"></ul>
       </div>
     </div>
@@ -814,20 +828,20 @@
     <div class="sheet-dialog" id="action-sheet-dialog" role="dialog" aria-modal="true" aria-labelledby="action-sheet-heading">
       <div class="sheet-header">
         <button class="sheet-close" id="btn-close-action-sheet" aria-label="Close">✕</button>
-        <h2 id="action-sheet-heading">Track Actions</h2>
+        <h2 id="action-sheet-heading" data-i18n="sheet.trackActions">Track Actions</h2>
         <span class="sheet-spacer" aria-hidden="true"></span>
       </div>
       <p class="action-sheet-track-name" id="action-sheet-track-name"></p>
       <ul class="action-list">
         <li><button id="as-favorite">Add to favorites</button></li>
-        <li><button id="as-play-next">Play next</button></li>
-        <li><button id="as-add-queue">Add to queue</button></li>
-        <li><button id="as-move-up">Move up</button></li>
-        <li><button id="as-move-down">Move down</button></li>
-        <li><button id="as-rename">Rename</button></li>
-        <li><button id="as-playlists">Add to playlist…</button></li>
-        <li><button id="as-details">Track details</button></li>
-        <li><button id="as-delete" class="danger">Remove from library</button></li>
+        <li><button id="as-play-next" data-i18n="common.playNext">Play next</button></li>
+        <li><button id="as-add-queue" data-i18n="sheet.addToQueue">Add to queue</button></li>
+        <li><button id="as-move-up" data-i18n="sheet.moveUp">Move up</button></li>
+        <li><button id="as-move-down" data-i18n="sheet.moveDown">Move down</button></li>
+        <li><button id="as-rename" data-i18n="sheet.rename">Rename</button></li>
+        <li><button id="as-playlists" data-i18n="batch.addToPlaylist">Add to playlist…</button></li>
+        <li><button id="as-details" data-i18n="sheet.trackDetails">Track details</button></li>
+        <li><button id="as-delete" class="danger" data-i18n="sheet.removeFromLibrary">Remove from library</button></li>
       </ul>
     </div>
   </div>
@@ -837,16 +851,16 @@
     <div class="sheet-dialog" id="playlist-picker-dialog" role="dialog" aria-modal="true" aria-labelledby="playlist-picker-heading">
       <div class="sheet-header">
         <button class="sheet-close" id="btn-close-playlist-picker" aria-label="Close">✕</button>
-        <h2 id="playlist-picker-heading">Add to Playlist</h2>
+        <h2 id="playlist-picker-heading" data-i18n="sheet.addToPlaylistHeading">Add to Playlist</h2>
         <span class="sheet-spacer" aria-hidden="true"></span>
       </div>
       <ul class="pp-list" id="pp-list"></ul>
       <div class="pp-new-row">
-        <label for="pp-new-name" class="visually-hidden">New playlist name</label>
-        <input type="text" id="pp-new-name" placeholder="New playlist name…" />
-        <button class="btn-ghost" id="pp-create">Create</button>
+        <label for="pp-new-name" class="visually-hidden" data-i18n="playlists.newLabel">New playlist name</label>
+        <input type="text" id="pp-new-name" placeholder="New playlist name…" data-i18n-placeholder="playlists.newPlaceholder" />
+        <button class="btn-ghost" id="pp-create" data-i18n="playlists.create">Create</button>
       </div>
-      <button class="btn-primary" id="pp-done" style="width:100%; text-align:center;">Done</button>
+      <button class="btn-primary" id="pp-done" style="width:100%; text-align:center;" data-i18n="common.done">Done</button>
     </div>
   </div>
 
@@ -855,7 +869,7 @@
     <div class="sheet-dialog" id="details-dialog" role="dialog" aria-modal="true" aria-labelledby="details-heading">
       <div class="sheet-header">
         <button class="sheet-close" id="btn-close-details" aria-label="Close">✕</button>
-        <h2 id="details-heading">Track Details</h2>
+        <h2 id="details-heading" data-i18n="sheet.trackDetails">Track Details</h2>
         <span class="sheet-spacer" aria-hidden="true"></span>
       </div>
       <div class="details-list" id="details-list"></div>
@@ -866,7 +880,7 @@
     <div class="sheet-dialog" id="queue-dialog" role="dialog" aria-modal="true" aria-labelledby="queue-heading">
       <div class="sheet-header">
         <button class="sheet-close" id="btn-close-queue" aria-label="Close">✕</button>
-        <h2 id="queue-heading">Queue</h2>
+        <h2 id="queue-heading" data-i18n="sheet.queue">Queue</h2>
         <span class="sheet-spacer" aria-hidden="true"></span>
       </div>
       <p class="queue-now-playing mono" id="queue-now-playing"></p>
@@ -878,30 +892,30 @@
     <div class="sheet-dialog" id="stats-dialog" role="dialog" aria-modal="true" aria-labelledby="stats-heading">
       <div class="sheet-header">
         <button class="sheet-close" id="btn-close-stats" aria-label="Close">✕</button>
-        <h2 id="stats-heading">Listening Stats</h2>
+        <h2 id="stats-heading" data-i18n="sheet.listeningStats">Listening Stats</h2>
         <span class="sheet-spacer" aria-hidden="true"></span>
       </div>
       <div id="stats-body">
         <div class="stats-headline-row">
           <div class="stats-headline">
             <span class="stats-headline-value" id="stats-total-value">0m</span>
-            <span class="stats-headline-label">All-time listening</span>
+            <span class="stats-headline-label" data-i18n="stats.allTime">All-time listening</span>
           </div>
           <div class="stats-headline">
             <span class="stats-headline-value" id="stats-week-value">0m</span>
-            <span class="stats-headline-label">This week</span>
+            <span class="stats-headline-label" data-i18n="stats.thisWeek">This week</span>
           </div>
         </div>
 
         <p class="mono" id="stats-recap" style="margin: 4px 0 18px; font-size:0.8rem; color: var(--paper-dim);"></p>
 
-        <h3 class="stats-subhead">Last 7 days</h3>
+        <h3 class="stats-subhead" data-i18n="stats.last7Days">Last 7 days</h3>
         <div class="stats-chart" id="stats-week-chart" role="img" aria-label=""></div>
 
-        <h3 class="stats-subhead">Top tracks</h3>
+        <h3 class="stats-subhead" data-i18n="stats.topTracks">Top tracks</h3>
         <ol class="stats-list" id="stats-top-tracks"></ol>
 
-        <h3 class="stats-subhead">Top artists</h3>
+        <h3 class="stats-subhead" data-i18n="stats.topArtists">Top artists</h3>
         <ol class="stats-list" id="stats-top-artists"></ol>
 
         <p class="formats-note" id="stats-empty-note" style="margin-top:14px; display:none;">Play something and check back — stats build up as you actually listen, not just from adding tracks.</p>
@@ -913,7 +927,7 @@
     <div class="sheet-dialog" id="dupes-dialog" role="dialog" aria-modal="true" aria-labelledby="dupes-heading">
       <div class="sheet-header">
         <button class="sheet-close" id="btn-close-dupes" aria-label="Close">✕</button>
-        <h2 id="dupes-heading">Duplicate Tracks</h2>
+        <h2 id="dupes-heading" data-i18n="sheet.duplicateTracks">Duplicate Tracks</h2>
         <span class="sheet-spacer" aria-hidden="true"></span>
       </div>
       <p class="mono" id="dupes-summary" style="font-size:0.8rem; color:var(--paper-dim); margin:0 0 14px;"></p>
@@ -925,17 +939,38 @@
     <div class="sheet-dialog" id="library-menu-dialog" role="dialog" aria-modal="true" aria-labelledby="library-menu-heading">
       <div class="sheet-header">
         <button class="sheet-close" id="btn-close-library-menu" aria-label="Close">✕</button>
-        <h2 id="library-menu-heading">Library Options</h2>
+        <h2 id="library-menu-heading" data-i18n="sheet.libraryOptions">Library Options</h2>
         <span class="sheet-spacer" aria-hidden="true"></span>
       </div>
       <ul class="action-list">
         <li><button id="lm-select">Select tracks…</button></li>
-        <li><button id="lm-stats">Listening stats</button></li>
-        <li><button id="lm-dupes">Find duplicate tracks</button></li>
-        <li><button id="lm-export">Export favorites &amp; playlists</button></li>
-        <li><button id="lm-import">Import backup</button></li>
-        <li><button id="lm-clear" class="danger">Clear library…</button></li>
+        <li><button id="lm-stats" data-i18n="settings.viewStats">Listening stats</button></li>
+        <li><button id="lm-dupes" data-i18n="sheet.findDuplicates">Find duplicate tracks</button></li>
+        <li><button id="lm-export" data-i18n="settings.exportBackup">Export favorites &amp; playlists</button></li>
+        <li><button id="lm-import" data-i18n="settings.importBackup">Import backup</button></li>
+        <li><button id="lm-clear" class="danger" data-i18n="sheet.clearLibraryEllipsis">Clear library…</button></li>
       </ul>
+    </div>
+  </div>
+
+  <div class="sheet-overlay" id="playlist-menu-overlay" hidden>
+    <div class="sheet-dialog" id="playlist-menu-dialog" role="dialog" aria-modal="true" aria-labelledby="playlist-menu-heading">
+      <div class="sheet-header">
+        <button class="sheet-close" id="btn-close-playlist-menu" aria-label="Close">✕</button>
+        <h2 id="playlist-menu-heading" data-i18n="sheet.playlistOptions">Playlist Options</h2>
+        <span class="sheet-spacer" aria-hidden="true"></span>
+      </div>
+      <p class="action-sheet-track-name" id="playlist-menu-name"></p>
+      <ul class="action-list" id="playlist-menu-actions">
+        <li><button id="pm-open" data-i18n="playlists.open">Open playlist</button></li>
+        <li><button id="pm-rename" data-i18n="sheet.rename">Rename</button></li>
+        <li><button id="pm-delete" class="danger" data-i18n="playlists.delete">Delete playlist</button></li>
+      </ul>
+      <div class="pp-new-row" id="pm-rename-row" hidden>
+        <label for="pm-rename-input" class="visually-hidden" data-i18n="playlists.renameLabel">Playlist name</label>
+        <input type="text" id="pm-rename-input" />
+        <button class="btn-ghost" id="pm-rename-save" data-i18n="playlists.save">Save</button>
+      </div>
     </div>
   </div>
 
@@ -943,89 +978,91 @@
   <div class="tabs" role="tablist" aria-label="Sections">
     <button role="tab" id="tab-library" aria-selected="true" aria-controls="panel-library" tabindex="0">
       <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="2.3" fill="currentColor"/></svg>
-      <span>Library</span>
+      <span data-i18n="tabs.library">Library</span>
     </button>
     <button role="tab" id="tab-playlists" aria-selected="false" aria-controls="panel-playlists" tabindex="-1">
       <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h12M4 12h12M4 18h7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M17 14.5l5 3-5 3v-6z" fill="currentColor"/></svg>
-      <span>Playlists</span>
+      <span data-i18n="tabs.playlists">Playlists</span>
     </button>
     <button role="tab" id="tab-add" aria-selected="false" aria-controls="panel-add" tabindex="-1">
       <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 8.5v7M8.5 12h7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-      <span>Add Music</span>
+      <span data-i18n="tabs.add">Add Music</span>
     </button>
     <button role="tab" id="tab-settings" aria-selected="false" aria-controls="panel-settings" tabindex="-1">
       <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19v-6M5 9V5M12 19v-8M12 7V5M19 19v-4M19 11V5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="5" cy="11" r="2.1" fill="currentColor"/><circle cx="12" cy="9" r="2.1" fill="currentColor"/><circle cx="19" cy="13" r="2.1" fill="currentColor"/></svg>
-      <span>Settings</span>
+      <span data-i18n="tabs.settings">Settings</span>
     </button>
   </div>
 
   <!-- Library panel -->
   <div id="panel-library" role="tabpanel" aria-labelledby="tab-library" tabindex="0">
     <div id="library-empty" class="empty-state">
-      No tracks yet. <button id="goto-add-from-empty">Go to Add Music</button> to load songs from your Files app.
+      <span data-i18n="library.emptyPre">No tracks yet. </span><button id="goto-add-from-empty" data-i18n="library.emptyGoAdd">Go to Add Music</button><span data-i18n="library.emptyPost"> to load songs from your Files app.</span>
     </div>
 
     <div id="library-content" style="display:none;">
       <div class="pill-row" role="tablist" aria-label="Browse by" style="margin-bottom:14px;">
-        <button class="pill" id="libview-songs" role="tab" aria-selected="true" aria-pressed="true">Songs</button>
-        <button class="pill" id="libview-albums" role="tab" aria-selected="false" aria-pressed="false">Albums</button>
-        <button class="pill" id="libview-artists" role="tab" aria-selected="false" aria-pressed="false">Artists</button>
+        <button class="pill" id="libview-songs" role="tab" aria-selected="true" aria-pressed="true" data-i18n="library.songs">Songs</button>
+        <button class="pill" id="libview-albums" role="tab" aria-selected="false" aria-pressed="false" data-i18n="library.albums">Albums</button>
+        <button class="pill" id="libview-artists" role="tab" aria-selected="false" aria-pressed="false" data-i18n="library.artists">Artists</button>
       </div>
 
       <div id="library-songs-view">
         <div class="group-context-bar" id="group-context-bar" hidden>
-          <button class="btn-ghost" id="btn-group-back" style="padding:6px 12px; font-size:0.78rem;">‹ Back</button>
+          <button class="btn-ghost" id="btn-group-back" style="padding:6px 12px; font-size:0.78rem;" data-i18n="common.back">‹ Back</button>
           <span class="mono" id="group-context-label"></span>
           <button class="btn-ghost btn-icon-text btn-accent" id="btn-shuffle-play-group" style="padding:6px 12px; font-size:0.76rem;">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h3.3c1.1 0 2.1.55 2.7 1.45l6 8.1c.6.9 1.6 1.45 2.7 1.45H21M3 18h3.3c1.1 0 2.1-.55 2.7-1.45l1-1.35M17 3l4 3-4 3M17 15l4 3-4 3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            Shuffle
+            <span data-i18n="common.shuffle">Shuffle</span>
           </button>
         </div>
         <div class="lib-controls">
           <div class="search-wrap">
-            <label for="search-input" class="visually-hidden">Search your library</label>
-            <input type="search" id="search-input" placeholder="Search your library…" />
+            <label for="search-input" class="visually-hidden" data-i18n="library.searchLabel">Search your library</label>
+            <input type="search" id="search-input" placeholder="Search your library…" data-i18n-placeholder="library.searchPlaceholder" />
           </div>
-          <label for="sort-select" class="visually-hidden">Sort tracks</label>
+          <label for="sort-select" class="visually-hidden" data-i18n="library.sortLabel">Sort tracks</label>
           <select class="sort-select" id="sort-select">
-            <option value="added">Recently added</option>
-            <option value="recent">Recently played</option>
-            <option value="plays">Most played</option>
-            <option value="name">Name A–Z</option>
-            <option value="duration">Duration</option>
+            <option value="added" data-i18n="sort.added">Recently added</option>
+            <option value="recent" data-i18n="sort.recent">Recently played</option>
+            <option value="plays" data-i18n="sort.plays">Most played</option>
+            <option value="name" data-i18n="sort.name">Name A–Z</option>
+            <option value="duration" data-i18n="sort.duration">Duration</option>
+            <option value="custom" data-i18n="sort.custom" disabled>Custom order</option>
           </select>
-          <label for="playlist-filter-select" class="visually-hidden">Filter by playlist</label>
+          <label for="playlist-filter-select" class="visually-hidden" data-i18n="library.filterByPlaylistLabel">Filter by playlist</label>
           <select class="sort-select" id="playlist-filter-select">
-            <option value="all">All tracks</option>
+            <option value="all" data-i18n="filter.allTracks">All tracks</option>
           </select>
-          <button class="fav-filter" id="fav-filter-btn" aria-pressed="false">★ Favorites</button>
-          <button class="fav-filter" id="unplayed-filter-btn" aria-pressed="false">🆕 <span id="unplayed-count">0</span> unplayed</button>
-          <button class="fav-filter" id="btn-toggle-select" aria-pressed="false">Select</button>
+          <button class="fav-filter" id="fav-filter-btn" aria-pressed="false" data-i18n="filter.favorites">★ Favorites</button>
+          <button class="fav-filter" id="unplayed-filter-btn" aria-pressed="false"><span data-i18n="filter.newIcon">🆕</span> <span id="unplayed-count">0</span> <span data-i18n="filter.unplayed">unplayed</span></button>
+          <button class="fav-filter" id="btn-toggle-select" aria-pressed="false" data-i18n="library.select">Select</button>
         </div>
 
         <div class="batch-bar" id="batch-bar" hidden>
           <span class="batch-count mono" id="batch-count">0 selected</span>
-          <button id="batch-select-all">Select all</button>
-          <button id="batch-favorite">★ Favorite</button>
-          <button id="batch-playlist">Add to playlist…</button>
-          <button id="batch-play-next">Play next</button>
-          <button class="danger" id="batch-delete">Delete</button>
-          <button id="batch-done">Done</button>
+          <button id="batch-select-all" data-i18n="batch.selectAll">Select all</button>
+          <button id="batch-favorite" data-i18n="batch.favorite">★ Favorite</button>
+          <button id="batch-playlist" data-i18n="batch.addToPlaylist">Add to playlist…</button>
+          <button id="batch-play-next" data-i18n="common.playNext">Play next</button>
+          <button class="danger" id="batch-delete" data-i18n="common.delete">Delete</button>
+          <button id="batch-done" data-i18n="common.done">Done</button>
         </div>
 
         <div class="playlist-header">
-          <h2>Tracks</h2>
+          <h2 data-i18n="library.tracksHeading">Tracks</h2>
           <span style="display:flex; align-items:center; gap:10px;">
             <button class="btn-ghost btn-icon-text btn-accent" id="btn-shuffle-play-library" aria-label="Shuffle play this list" style="padding:7px 14px; font-size:0.78rem;">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h3.3c1.1 0 2.1.55 2.7 1.45l6 8.1c.6.9 1.6 1.45 2.7 1.45H21M3 18h3.3c1.1 0 2.1-.55 2.7-1.45l1-1.35M17 3l4 3-4 3M17 15l4 3-4 3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              Shuffle
+              <span data-i18n="common.shuffle">Shuffle</span>
             </button>
-            <button class="btn-ghost" id="btn-jump-now-playing" style="padding:6px 12px; font-size:0.76rem; display:none;">Jump to playing</button>
+            <button class="btn-ghost" id="btn-jump-now-playing" style="padding:6px 12px; font-size:0.76rem; display:none;" data-i18n="library.jumpToPlaying">Jump to playing</button>
             <button class="li-more" id="btn-library-menu" aria-label="More library options" style="flex-shrink:0;">⋯</button>
             <span class="playlist-count mono" id="playlist-count">0 tracks</span>
           </span>
         </div>
         <p class="playlist-stats mono" id="playlist-stats"></p>
+        <p class="custom-order-hint mono" id="custom-order-hint" hidden data-i18n="library.dragToReorder">Drag to reorder</p>
         <ul class="playlist" id="playlist" aria-label="Playlist. Activate a track to play it."></ul>
       </div>
 
@@ -1045,19 +1082,19 @@
     <div class="settings-section" id="smart-mixes-section">
       <div class="settings-row" style="align-items:baseline;">
         <div>
-          <div class="label">Smart Mixes</div>
-          <div class="desc" id="smart-mixes-desc">Auto-built from your genres, decades, and tempo — no setup needed.</div>
+          <div class="label" data-i18n="playlists.smartMixesLabel">Smart Mixes</div>
+          <div class="desc" id="smart-mixes-desc" data-i18n="playlists.smartMixesDesc">Auto-built from your genres, decades, and tempo — no setup needed.</div>
         </div>
       </div>
-      <div id="smart-mixes-empty" class="empty-state" style="display:none;">Add some tracks with genre or year tags to see mixes here.</div>
+      <div id="smart-mixes-empty" class="empty-state" style="display:none;" data-i18n="playlists.smartMixesEmpty">Add some tracks with genre or year tags to see mixes here.</div>
       <ul class="playlist" id="smart-mixes-list" aria-label="Smart mixes" style="display:none;"></ul>
     </div>
     <div class="pp-new-row">
-      <label for="playlists-tab-new-name" class="visually-hidden">New playlist name</label>
-      <input type="text" id="playlists-tab-new-name" placeholder="New playlist name…" />
-      <button class="btn-ghost" id="playlists-tab-create">Create</button>
+      <label for="playlists-tab-new-name" class="visually-hidden" data-i18n="playlists.newLabel">New playlist name</label>
+      <input type="text" id="playlists-tab-new-name" placeholder="New playlist name…" data-i18n-placeholder="playlists.newPlaceholder" />
+      <button class="btn-ghost" id="playlists-tab-create" data-i18n="playlists.create">Create</button>
     </div>
-    <div id="playlists-tab-empty" class="empty-state">
+    <div id="playlists-tab-empty" class="empty-state" data-i18n="playlists.empty">
       No playlists yet. Create one above, or add a track to a new playlist from your Library's "⋯" menu.
     </div>
     <ul class="playlist" id="playlists-tab-list" aria-label="Your playlists" style="display:none;"></ul>
@@ -1066,11 +1103,11 @@
   <!-- Add Music panel -->
   <div id="panel-add" role="tabpanel" aria-labelledby="tab-add" tabindex="0" hidden>
     <div class="picker" id="picker-dropzone">
-      <h2>Add your songs</h2>
-      <p>Choose MP3 or FLAC files from your device — or drag and drop them here. Nothing is uploaded — everything plays locally, right in this window.</p>
+      <h2 data-i18n="add.heading">Add your songs</h2>
+      <p data-i18n="add.description">Choose MP3 or FLAC files from your device — or drag and drop them here. Nothing is uploaded — everything plays locally, right in this window.</p>
       <div class="pill-row" style="justify-content:center;">
-        <label class="btn-primary" for="file-input">Choose files</label>
-        <label class="btn-ghost" for="folder-input">Choose folder</label>
+        <label class="btn-primary" for="file-input" data-i18n="add.chooseFiles">Choose files</label>
+        <label class="btn-ghost" for="folder-input" data-i18n="add.chooseFolder">Choose folder</label>
       </div>
       <input type="file" id="file-input" accept=".mp3,.flac,.m4a,.aac,.wav,.ogg,audio/*" multiple aria-describedby="picker-hint" />
       <input type="file" id="folder-input" webkitdirectory directory multiple aria-describedby="folder-hint" />
@@ -1089,7 +1126,7 @@
         <p class="mono" id="add-summary-count">0 tracks in your library</p>
         <p class="formats-note">MP3 and FLAC are fully supported, along with AAC/M4A, WAV, and OGG. If a file won't play, it may be a format your browser can't decode.</p>
       </div>
-      <button class="btn-danger-ghost" id="btn-clear-library">Clear library</button>
+      <button class="btn-danger-ghost" id="btn-clear-library" data-i18n="add.clearLibrary">Clear library</button>
     </div>
   </div>
 
@@ -1099,52 +1136,52 @@
     <div class="settings-section">
       <div class="settings-row">
         <div>
-          <div class="label">Listening stats</div>
-          <div class="desc">Total time listened, top tracks &amp; artists, this week's recap</div>
+          <div class="label" data-i18n="settings.listeningStatsLabel">Listening stats</div>
+          <div class="desc" data-i18n="settings.listeningStatsDesc">Total time listened, top tracks &amp; artists, this week's recap</div>
         </div>
-        <button class="btn-ghost" id="btn-open-stats">View stats</button>
+        <button class="btn-ghost" id="btn-open-stats" data-i18n="settings.viewStats">View stats</button>
       </div>
       <div class="settings-row">
         <div>
-          <div class="label">Duplicate tracks</div>
-          <div class="desc">Find tracks that appear more than once in your library</div>
+          <div class="label" data-i18n="settings.duplicatesLabel">Duplicate tracks</div>
+          <div class="desc" data-i18n="settings.duplicatesDesc">Find tracks that appear more than once in your library</div>
         </div>
-        <button class="btn-ghost" id="btn-open-dupes">Scan library</button>
+        <button class="btn-ghost" id="btn-open-dupes" data-i18n="settings.scanLibrary">Scan library</button>
       </div>
       <div class="settings-row">
         <div>
-          <div class="label">Storage</div>
+          <div class="label" data-i18n="settings.storageLabel">Storage</div>
           <div class="desc" id="storage-usage-desc">Checking how much space your library is using…</div>
         </div>
-        <button class="btn-ghost" id="btn-refresh-storage">Refresh</button>
+        <button class="btn-ghost" id="btn-refresh-storage" data-i18n="common.refresh">Refresh</button>
       </div>
     </div>
 
     <div class="settings-section">
-      <h2>Sound &amp; Playback</h2>
+      <h2 data-i18n="settings.soundPlaybackHeading">Sound &amp; Playback</h2>
       <fieldset>
-        <legend id="quality-legend">Sound profile</legend>
+        <legend id="quality-legend" data-i18n="settings.soundProfileLegend">Sound profile</legend>
         <div class="pill-row" role="group" aria-labelledby="quality-legend">
-          <button class="pill" data-quality="standard" aria-pressed="true">Standard</button>
-          <button class="pill" data-quality="warm" aria-pressed="false">Warm</button>
-          <button class="pill" data-quality="bright" aria-pressed="false">Bright</button>
-          <button class="pill" data-quality="voice" aria-pressed="false">Voice</button>
-          <button class="pill" data-quality="custom" aria-pressed="false">Custom</button>
+          <button class="pill" data-quality="standard" aria-pressed="true" data-i18n="quality.standard">Standard</button>
+          <button class="pill" data-quality="warm" aria-pressed="false" data-i18n="quality.warm">Warm</button>
+          <button class="pill" data-quality="bright" aria-pressed="false" data-i18n="quality.bright">Bright</button>
+          <button class="pill" data-quality="voice" aria-pressed="false" data-i18n="quality.voice">Voice</button>
+          <button class="pill" data-quality="custom" aria-pressed="false" data-i18n="quality.custom">Custom</button>
         </div>
       </fieldset>
       <div id="custom-eq-controls" hidden style="margin-top:14px;">
         <div class="eq-row">
-          <label for="eq-low">Bass</label>
+          <label for="eq-low" data-i18n="eq.bass">Bass</label>
           <input type="range" id="eq-low" min="-12" max="12" step="1" value="0" />
           <span class="mono eq-value" id="eq-low-value">0 dB</span>
         </div>
         <div class="eq-row">
-          <label for="eq-mid">Mid</label>
+          <label for="eq-mid" data-i18n="eq.mid">Mid</label>
           <input type="range" id="eq-mid" min="-12" max="12" step="1" value="0" />
           <span class="mono eq-value" id="eq-mid-value">0 dB</span>
         </div>
         <div class="eq-row">
-          <label for="eq-high">Treble</label>
+          <label for="eq-high" data-i18n="eq.treble">Treble</label>
           <input type="range" id="eq-high" min="-12" max="12" step="1" value="0" />
           <span class="mono eq-value" id="eq-high-value">0 dB</span>
         </div>
@@ -1154,7 +1191,7 @@
 
     <div class="settings-section">
       <fieldset>
-        <legend id="speed-legend">Playback speed</legend>
+        <legend id="speed-legend" data-i18n="settings.speedLegend">Playback speed</legend>
         <div class="pill-row" role="group" aria-labelledby="speed-legend">
           <button class="pill" data-speed="0.75" aria-pressed="false">0.75×</button>
           <button class="pill" data-speed="1" aria-pressed="true">1×</button>
@@ -1167,22 +1204,22 @@
     <div class="settings-section">
       <div class="settings-row">
         <div>
-          <div class="label">Sleep timer</div>
-          <div class="desc">Automatically pause after a set time</div>
+          <div class="label" data-i18n="settings.sleepTimerLabel">Sleep timer</div>
+          <div class="desc" data-i18n="settings.sleepTimerDesc">Automatically pause after a set time</div>
         </div>
-        <label for="sleep-select" class="visually-hidden">Sleep timer</label>
+        <label for="sleep-select" class="visually-hidden" data-i18n="settings.sleepTimerLabel">Sleep timer</label>
         <select class="plain-select" id="sleep-select">
-          <option value="off">Off</option>
-          <option value="15">15 minutes</option>
-          <option value="30">30 minutes</option>
-          <option value="45">45 minutes</option>
-          <option value="60">60 minutes</option>
-          <option value="end">End of current track</option>
+          <option value="off" data-i18n="common.off">Off</option>
+          <option value="15" data-i18n="sleep.15">15 minutes</option>
+          <option value="30" data-i18n="sleep.30">30 minutes</option>
+          <option value="45" data-i18n="sleep.45">45 minutes</option>
+          <option value="60" data-i18n="sleep.60">60 minutes</option>
+          <option value="end" data-i18n="sleep.end">End of current track</option>
         </select>
       </div>
       <div class="settings-row">
         <div>
-          <div class="label" id="sleep-status-label">Timer status</div>
+          <div class="label" id="sleep-status-label" data-i18n="settings.timerStatusLabel">Timer status</div>
           <div class="desc" id="sleep-status">No sleep timer set</div>
         </div>
       </div>
@@ -1191,23 +1228,23 @@
     <div class="settings-section">
       <div class="settings-row">
         <div>
-          <div class="label">Fade between tracks</div>
-          <div class="desc">Smoothly fade out and in when a track changes</div>
+          <div class="label" data-i18n="settings.fadeLabel">Fade between tracks</div>
+          <div class="desc" data-i18n="settings.fadeDesc">Smoothly fade out and in when a track changes</div>
         </div>
       </div>
       <div class="pill-row" role="group" aria-label="Fade between tracks">
-        <button class="pill" data-fade="0" aria-pressed="true">Off</button>
-        <button class="pill" data-fade="1.5" aria-pressed="false">Quick (1.5s)</button>
-        <button class="pill" data-fade="3" aria-pressed="false">Smooth (3s)</button>
+        <button class="pill" data-fade="0" aria-pressed="true" data-i18n="common.off">Off</button>
+        <button class="pill" data-fade="1.5" aria-pressed="false" data-i18n="fade.quick">Quick (1.5s)</button>
+        <button class="pill" data-fade="3" aria-pressed="false" data-i18n="fade.smooth">Smooth (3s)</button>
       </div>
       <p class="formats-note" style="margin-top:10px;">Tracks actually overlap as they transition, and the timing adapts to how well the tempo and loudness of the two songs match. With shuffle on, the next track is picked with a bias toward songs that will blend well.</p>
     </div>
 
     <div class="settings-section">
       <fieldset>
-        <legend id="spatial-legend">Spatial audio</legend>
+        <legend id="spatial-legend" data-i18n="settings.spatialLegend">Spatial audio</legend>
         <div class="pill-row" role="group" aria-labelledby="spatial-legend">
-          <button class="pill" data-spatial="normal" aria-pressed="true">Normal</button>
+          <button class="pill" data-spatial="normal" aria-pressed="true" data-i18n="spatial.normal">Normal</button>
           <button class="pill" data-spatial="3d" aria-pressed="false">3D</button>
           <button class="pill" data-spatial="8d" aria-pressed="false">8D</button>
         </div>
@@ -1216,12 +1253,30 @@
     </div>
 
     <div class="settings-section">
-      <h2>Appearance</h2>
+      <h2 data-i18n="settings.appearanceHeading">Appearance</h2>
       <div class="settings-row">
-        <div class="label">Theme</div>
+        <div class="label" data-i18n="settings.themeLabel">Theme</div>
         <div class="theme-toggle" role="group" aria-label="Theme">
-          <button data-theme-choice="dark" aria-pressed="true">Dark</button>
-          <button data-theme-choice="light" aria-pressed="false">Light</button>
+          <button data-theme-choice="dark" aria-pressed="true" data-i18n="theme.dark">Dark</button>
+          <button data-theme-choice="light" aria-pressed="false" data-i18n="theme.light">Light</button>
+        </div>
+      </div>
+      <div class="settings-row" style="display:block;">
+        <div class="label" data-i18n="settings.accentLabel">Accent color</div>
+        <div class="accent-row" role="group" aria-label="Accent color">
+          <button class="accent-swatch" data-accent="brass" style="--sw-color:#C9A15D;" aria-pressed="true" aria-label="Brass (default)" data-i18n-aria="accent.brass"></button>
+          <button class="accent-swatch" data-accent="teal" style="--sw-color:#5C8A82;" aria-pressed="false" aria-label="Teal" data-i18n-aria="accent.teal"></button>
+          <button class="accent-swatch" data-accent="rose" style="--sw-color:#C97A8A;" aria-pressed="false" aria-label="Rose" data-i18n-aria="accent.rose"></button>
+          <button class="accent-swatch" data-accent="indigo" style="--sw-color:#7C87C9;" aria-pressed="false" aria-label="Indigo" data-i18n-aria="accent.indigo"></button>
+          <button class="accent-swatch" data-accent="sage" style="--sw-color:#8FA37D;" aria-pressed="false" aria-label="Sage" data-i18n-aria="accent.sage"></button>
+          <button class="accent-swatch" data-accent="crimson" style="--sw-color:#C9615C;" aria-pressed="false" aria-label="Crimson" data-i18n-aria="accent.crimson"></button>
+        </div>
+      </div>
+      <div class="settings-row">
+        <div class="label" data-i18n="settings.languageLabel">App language</div>
+        <div class="theme-toggle" role="group" aria-label="App language" id="lang-toggle">
+          <button data-lang-choice="en" aria-pressed="true">English</button>
+          <button data-lang-choice="es" aria-pressed="false">Español</button>
         </div>
       </div>
     </div>
@@ -1229,7 +1284,7 @@
     <div class="settings-section">
       <div class="settings-row">
         <div>
-          <div class="label">Notification sounds</div>
+          <div class="label" data-i18n="settings.notifySoundsLabel">Notification sounds</div>
           <div class="desc">A short chime when an import finishes, and a different one when background tempo analysis for Smart Mixes finishes.</div>
         </div>
         <input type="checkbox" id="notify-sounds-toggle" checked aria-label="Notification sounds" />
@@ -1239,7 +1294,7 @@
     <div class="settings-section">
       <div class="settings-row">
         <div>
-          <div class="label">Keep effects on lock screen (experimental)</div>
+          <div class="label" data-i18n="settings.keepEffectsLabel">Keep effects on lock screen (experimental)</div>
           <div class="desc">iOS normally mutes the 3D/8D and EQ effects the moment you lock your screen or switch apps, and Spool quietly swaps to plain playback so the music doesn't stop. Turning this on tries to keep the processed audio running instead — it may work, or it may glitch or go silent, depending on your device. Leave it off if that happens.</div>
         </div>
         <input type="checkbox" id="keep-effects-bg-toggle" aria-label="Keep effects on lock screen (experimental)" />
@@ -1249,7 +1304,7 @@
     <div class="settings-section">
       <div class="settings-row">
         <div>
-          <div class="label">Analyze tempo right after importing</div>
+          <div class="label" data-i18n="settings.analyzeImportLabel">Analyze tempo right after importing</div>
           <div class="desc">By default, tempo analysis for Smart Mixes only starts once you open the Playlists tab. Turning this on starts it the moment an import finishes instead — useful if you'd rather get it out of the way, but it means your device gets busy decoding audio right after a big import.</div>
         </div>
         <input type="checkbox" id="analyze-on-import-toggle" aria-label="Analyze tempo right after importing" />
@@ -1258,7 +1313,7 @@
 
     <div class="settings-section">
       <div class="settings-row">
-        <h2 style="margin:0;">Keyboard &amp; VoiceOver</h2>
+        <h2 style="margin:0;" data-i18n="settings.keyboardHeading">Keyboard &amp; VoiceOver</h2>
         <button class="btn-ghost" id="btn-toggle-shortcuts" aria-pressed="true">Hide shortcuts</button>
       </div>
       <div id="shortcuts-wrap" style="margin-top:14px;">
@@ -1279,15 +1334,15 @@
     </div>
 
     <div class="settings-section">
-      <h2>Data</h2>
+      <h2 data-i18n="settings.dataHeading">Data</h2>
       <p class="formats-note" id="autosave-status" style="margin-bottom:12px;">Checking storage…</p>
       <p class="formats-note" style="margin-bottom:12px;">Your audio files themselves are saved on this device (in this browser's local storage), so your library survives a refresh or reopening the app. They never leave your device. Clearing this browser's site data will remove them — use export/import below as a portable backup of your favorites and playlists, or to move them to another device or browser.</p>
       <div class="pill-row" style="margin-bottom:14px;">
-        <button class="btn-ghost" id="btn-export-data">Export favorites &amp; playlists</button>
-        <label class="btn-ghost" for="import-data-input" style="cursor:pointer;">Import backup</label>
+        <button class="btn-ghost" id="btn-export-data" data-i18n="settings.exportBackup">Export favorites &amp; playlists</button>
+        <label class="btn-ghost" for="import-data-input" style="cursor:pointer;" data-i18n="settings.importBackup">Import backup</label>
         <input type="file" id="import-data-input" accept=".json" class="visually-hidden" />
       </div>
-      <button class="btn-danger-ghost" id="btn-reset-all">Reset library and settings</button>
+      <button class="btn-danger-ghost" id="btn-reset-all" data-i18n="settings.resetAll">Reset library and settings</button>
     </div>
   </div>
 
@@ -1362,6 +1417,7 @@
   const playlistEl = document.getElementById('playlist');
   const playlistCount = document.getElementById('playlist-count');
   const playlistStats = document.getElementById('playlist-stats');
+  const customOrderHint = document.getElementById('custom-order-hint');
   const btnJumpNowPlaying = document.getElementById('btn-jump-now-playing');
   const btnShufflePlayLibrary = document.getElementById('btn-shuffle-play-library');
   const libviewSongs = document.getElementById('libview-songs');
@@ -1398,6 +1454,7 @@
   const sleepStatus = document.getElementById('sleep-status');
   const fadeButtons = document.querySelectorAll('[data-fade]');
   const themeButtons = document.querySelectorAll('[data-theme-choice]');
+  const accentButtons = document.querySelectorAll('[data-accent]');
 
   const playlistFilterSelect = document.getElementById('playlist-filter-select');
   const btnToggleSelect = document.getElementById('btn-toggle-select');
@@ -1795,7 +1852,7 @@
       trackNumber: t.trackNumber || null,
       playlistIds: t.playlistIds || [],
     }));
-    const playlistRecords = playlists.map(p => ({ id: p.id, name: p.name }));
+    const playlistRecords = playlists.map(p => ({ id: p.id, name: p.name, order: p.order || [] }));
     dbClearAndPutAll('tracks', trackRecords);
     dbClearAndPutAll('playlists', playlistRecords);
   }
@@ -1807,7 +1864,7 @@
     if (!trackRecords.length) return false;
     const blobRecords = await dbGetManyThrottled('blobs', blobKeys, 4);
     const blobById = new Map(blobRecords.filter(Boolean).map(b => [b.id, b]));
-    playlistRecords.forEach(p => { if (!playlists.some(x => x.id === p.id)) playlists.push({ id: p.id, name: p.name }); });
+    playlistRecords.forEach(p => { if (!playlists.some(x => x.id === p.id)) playlists.push({ id: p.id, name: p.name, order: p.order || [] }); });
     trackRecords.sort((a, b) => (a.addedAt || 0) - (b.addedAt || 0));
     const restored = [];
     let maxId = nextId;
@@ -3780,7 +3837,12 @@
 
   function renderPlaylistFilterOptions(){
     const current = playlistFilterSelect.value;
-    playlistFilterSelect.innerHTML = '<option value="all">All tracks</option>';
+    playlistFilterSelect.innerHTML = '';
+    const allOpt = document.createElement('option');
+    allOpt.value = 'all';
+    allOpt.setAttribute('data-i18n', 'filter.allTracks');
+    allOpt.textContent = t('filter.allTracks');
+    playlistFilterSelect.appendChild(allOpt);
     playlists.forEach(p => {
       const opt = document.createElement('option');
       opt.value = p.id;
@@ -3944,30 +4006,127 @@
       shuffleBtn.className = 'li-shuffle';
       shuffleBtn.setAttribute('aria-label', 'Shuffle play ' + p.name);
       shuffleBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h3.3c1.1 0 2.1.55 2.7 1.45l6 8.1c.6.9 1.6 1.45 2.7 1.45H21M3 18h3.3c1.1 0 2.1-.55 2.7-1.45l1-1.35M17 3l4 3-4 3M17 15l4 3-4 3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-      shuffleBtn.addEventListener('click', () => {
-        const list = tracks.map((t, i) => ({ ...t, originalIndex: i })).filter(t => (t.playlistIds || []).includes(p.id));
-        if (!list.length) { announce('This playlist has no tracks yet.'); return; }
-        playlistFilterId = p.id;
-        playlistFilterSelect.value = p.id;
-        groupFilter = null; groupSourceView = null;
-        selectTab('tab-library');
-        setLibraryViewMode('songs');
-        shufflePlayTracks(list);
-      });
+      shuffleBtn.addEventListener('click', () => shufflePlaylistFromTab(p.id));
 
-      const delBtn = document.createElement('button');
-      delBtn.type = 'button';
-      delBtn.className = 'li-delete';
-      delBtn.setAttribute('aria-label', 'Delete playlist ' + p.name);
-      delBtn.textContent = '✕';
-      delBtn.addEventListener('click', () => deletePlaylist(p.id));
+      const moreBtn = document.createElement('button');
+      moreBtn.type = 'button';
+      moreBtn.className = 'li-more';
+      moreBtn.dataset.playlistId = p.id;
+      moreBtn.setAttribute('aria-label', 'More actions for playlist ' + p.name);
+      moreBtn.textContent = '⋯';
+      moreBtn.addEventListener('click', () => openPlaylistMenu(p.id, moreBtn));
 
       li.appendChild(openBtn);
       li.appendChild(shuffleBtn);
-      li.appendChild(delBtn);
+      li.appendChild(moreBtn);
 
       playlistsTabList.appendChild(li);
     });
+  }
+
+  // ---------- Playlist menu (⋯ on each playlist in the Playlists tab) ----------
+  const playlistMenuOverlay = document.getElementById('playlist-menu-overlay');
+  const playlistMenuDialog = document.getElementById('playlist-menu-dialog');
+  const playlistMenuName = document.getElementById('playlist-menu-name');
+  const pmActions = document.getElementById('playlist-menu-actions');
+  const pmRenameRow = document.getElementById('pm-rename-row');
+  const pmRenameInput = document.getElementById('pm-rename-input');
+  const pmDelete = document.getElementById('pm-delete');
+  let playlistMenuId = null;
+  let playlistMenuTriggerEl = null;
+
+  function resetPlaylistMenuState(){
+    pmActions.hidden = false;
+    pmRenameRow.hidden = true;
+    pmDelete.dataset.confirming = 'false';
+    pmDelete.textContent = t('playlists.delete');
+  }
+  function openPlaylistMenu(id, triggerEl){
+    const p = playlists.find(pl => pl.id === id);
+    if (!p) return;
+    playlistMenuId = id;
+    playlistMenuTriggerEl = triggerEl || document.activeElement;
+    playlistMenuName.textContent = p.name;
+    resetPlaylistMenuState();
+    playlistMenuOverlay.hidden = false;
+    const focusable = getFocusable(playlistMenuDialog);
+    (focusable[0] || playlistMenuDialog).focus();
+  }
+  function closePlaylistMenu(){
+    playlistMenuOverlay.hidden = true;
+    playlistMenuId = null;
+    if (playlistMenuTriggerEl && document.contains(playlistMenuTriggerEl) && typeof playlistMenuTriggerEl.focus === 'function') playlistMenuTriggerEl.focus();
+  }
+  document.getElementById('btn-close-playlist-menu').addEventListener('click', closePlaylistMenu);
+  playlistMenuOverlay.addEventListener('click', (e) => { if (e.target === playlistMenuOverlay) closePlaylistMenu(); });
+  playlistMenuDialog.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); closePlaylistMenu(); return; }
+    if (e.key === 'Tab') {
+      const focusable = getFocusable(playlistMenuDialog);
+      if (!focusable.length) return;
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+  });
+  document.getElementById('pm-open').addEventListener('click', () => {
+    const id = playlistMenuId;
+    closePlaylistMenu();
+    openPlaylistFromTab(id);
+  });
+  document.getElementById('pm-rename').addEventListener('click', () => {
+    const p = playlists.find(pl => pl.id === playlistMenuId);
+    if (!p) return;
+    pmActions.hidden = true;
+    pmRenameRow.hidden = false;
+    pmRenameInput.value = p.name;
+    pmRenameInput.focus();
+    pmRenameInput.select();
+  });
+  function commitPlaylistRename(){
+    const p = playlists.find(pl => pl.id === playlistMenuId);
+    const newName = pmRenameInput.value.trim();
+    if (!p || !newName) return;
+    p.name = newName;
+    renderPlaylistFilterOptions();
+    renderPlaylistsTab();
+    announce('Playlist renamed to ' + newName);
+    persistNow();
+    const id = playlistMenuId;
+    closePlaylistMenu();
+    const again = playlistsTabList.querySelector('.li-more[data-playlist-id="' + id + '"]');
+    if (again) again.focus();
+  }
+  document.getElementById('pm-rename-save').addEventListener('click', commitPlaylistRename);
+  pmRenameInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); commitPlaylistRename(); }
+  });
+  // Deleting a playlist can't be undone, so it takes a second tap to confirm.
+  pmDelete.addEventListener('click', () => {
+    if (pmDelete.dataset.confirming === 'true') {
+      const id = playlistMenuId;
+      playlistMenuTriggerEl = null;
+      closePlaylistMenu();
+      deletePlaylist(id);
+      const panel = document.getElementById('panel-playlists');
+      if (panel) panel.focus();
+    } else {
+      pmDelete.dataset.confirming = 'true';
+      pmDelete.textContent = t('playlists.deleteConfirm');
+    }
+  });
+
+  function shufflePlaylistFromTab(id){
+    const p = playlists.find(pl => pl.id === id);
+    if (!p) return;
+    const list = tracks.map((tr, i) => ({ ...tr, originalIndex: i })).filter(tr => (tr.playlistIds || []).includes(id));
+    if (!list.length) { announce('This playlist has no tracks yet.'); return; }
+    playlistFilterId = id;
+    playlistFilterSelect.value = id;
+    groupFilter = null; groupSourceView = null;
+    selectTab('tab-library');
+    setLibraryViewMode('songs');
+    shufflePlayTracks(list);
   }
 
   function openPlaylistFromTab(id){
@@ -3994,7 +4153,7 @@
   function createPlaylist(name){
     const trimmed = name.trim();
     if (!trimmed) return null;
-    const p = { id: 'pl' + (nextPlaylistId++), name: trimmed };
+    const p = { id: 'pl' + (nextPlaylistId++), name: trimmed, order: [] };
     playlists.push(p);
     renderPlaylistFilterOptions();
     renderPlaylistsTab();
@@ -4589,6 +4748,16 @@
       list.sort((a,b) => (b.lastPlayedAt||0) - (a.lastPlayedAt||0));
     } else if (sortMode === 'plays') {
       list.sort((a,b) => (b.playCount||0) - (a.playCount||0));
+    } else if (sortMode === 'custom' && playlistFilterId !== 'all') {
+      const pl = playlists.find(p => p.id === playlistFilterId);
+      const order = (pl && pl.order) || [];
+      const orderIndex = new Map(order.map((id, i) => [id, i]));
+      list.sort((a, b) => {
+        const ai = orderIndex.has(a.id) ? orderIndex.get(a.id) : Infinity;
+        const bi = orderIndex.has(b.id) ? orderIndex.get(b.id) : Infinity;
+        if (ai !== bi) return ai - bi;
+        return a.originalIndex - b.originalIndex;
+      });
     }
     // 'added' keeps natural (insertion) order already
     return list;
@@ -4775,13 +4944,28 @@
     }
   }
 
+  function syncSortSelectAvailability(){
+    const customOption = sortSelect.querySelector('option[value="custom"]');
+    const playlistSelected = playlistFilterId !== 'all';
+    if (customOption) customOption.disabled = !playlistSelected;
+    if (sortMode === 'custom' && !playlistSelected) {
+      sortMode = 'added';
+      sortSelect.value = 'added';
+    }
+  }
+
   function renderPlaylist(){
+    syncSortSelectAvailability();
     const list = getFilteredSortedTracks();
     playlistEl.innerHTML = '';
 
     updateLibraryEmptyState();
 
-    list.forEach((t) => {
+    const customOrderActive = sortMode === 'custom' && playlistFilterId !== 'all';
+    const customOrderEditable = customOrderActive && !searchTerm.trim() && !favOnly && !unplayedOnly && !groupFilter && !selectionMode;
+    if (customOrderHint) customOrderHint.hidden = !customOrderEditable;
+
+    list.forEach((t, pos) => {
       const li = document.createElement('li');
       const isCurrent = t.originalIndex === currentIndex;
       const isSelected = selectedIds.has(t.id);
@@ -4911,7 +5095,41 @@
         li.appendChild(playBtn);
       }
 
+      if (customOrderEditable && !isRenaming) {
+        const handle = document.createElement('button');
+        handle.type = 'button';
+        handle.className = 'q-handle';
+        handle.setAttribute('aria-hidden', 'true');
+        handle.tabIndex = -1;
+        handle.innerHTML = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="9" cy="6" r="1.5" fill="currentColor"/><circle cx="15" cy="6" r="1.5" fill="currentColor"/><circle cx="9" cy="12" r="1.5" fill="currentColor"/><circle cx="15" cy="12" r="1.5" fill="currentColor"/><circle cx="9" cy="18" r="1.5" fill="currentColor"/><circle cx="15" cy="18" r="1.5" fill="currentColor"/></svg>';
+        handle.addEventListener('pointerdown', (e) => startPlaylistDrag(e, li));
+        li.dataset.plDraggable = 'true';
+        li.dataset.plTrackId = t.id;
+        li.appendChild(handle);
+      }
+
       li.appendChild(moreBtn);
+
+      if (customOrderEditable && !isRenaming) {
+        const moveBtns = document.createElement('div');
+        moveBtns.className = 'q-move-btns';
+        const upBtn = document.createElement('button');
+        upBtn.type = 'button';
+        upBtn.className = 'q-move-btn';
+        upBtn.setAttribute('aria-label', 'Move ' + (t.tagTitle || t.name) + ' up in playlist order');
+        upBtn.textContent = '▲';
+        upBtn.disabled = pos === 0;
+        upBtn.addEventListener('click', () => movePlaylistItem(pos, -1));
+        const downBtn = document.createElement('button');
+        downBtn.type = 'button';
+        downBtn.className = 'q-move-btn';
+        downBtn.setAttribute('aria-label', 'Move ' + (t.tagTitle || t.name) + ' down in playlist order');
+        downBtn.textContent = '▼';
+        downBtn.disabled = pos === list.length - 1;
+        downBtn.addEventListener('click', () => movePlaylistItem(pos, 1));
+        moveBtns.appendChild(upBtn); moveBtns.appendChild(downBtn);
+        li.appendChild(moveBtns);
+      }
 
       playlistEl.appendChild(li);
     });
@@ -4936,6 +5154,62 @@
     updateBatchBar();
     btnJumpNowPlaying.style.display = (currentIndex !== -1 && !selectionMode) ? 'inline-block' : 'none';
   }
+
+  // ---------- Custom playlist ordering ----------
+  // Only active when viewing a single playlist (unfiltered by search/fav/
+  // unplayed/grouping) with "Custom order" selected in the sort dropdown.
+  // The order itself lives on the playlist object (`pl.order`, an array of
+  // track ids) rather than touching the global `tracks` array, since it's
+  // meant to be independent of the library's own order.
+  function movePlaylistItem(pos, direction){
+    const list = getFilteredSortedTracks();
+    const target = pos + direction;
+    if (target < 0 || target >= list.length) return;
+    const ids = list.map(t => t.id);
+    [ids[pos], ids[target]] = [ids[target], ids[pos]];
+    applyPlaylistReorder(playlistFilterId, ids);
+  }
+
+  function applyPlaylistReorder(playlistId, newOrderIds){
+    const pl = playlists.find(p => p.id === playlistId);
+    if (!pl) return;
+    pl.order = newOrderIds;
+    persistNow();
+    renderPlaylist();
+  }
+
+  let plDrag = null;
+  function startPlaylistDrag(e, li){
+    e.preventDefault();
+    plDrag = { pointerId: e.pointerId, li };
+    li.classList.add('pl-dragging');
+    try { e.target.setPointerCapture(e.pointerId); } catch (err) {}
+  }
+  playlistEl.addEventListener('pointermove', (e) => {
+    if (!plDrag || e.pointerId !== plDrag.pointerId) return;
+    const y = e.clientY;
+    const siblings = [...playlistEl.querySelectorAll('li[data-pl-draggable]')].filter(li => li !== plDrag.li);
+    for (const sib of siblings) {
+      const rect = sib.getBoundingClientRect();
+      const mid = rect.top + rect.height / 2;
+      if (y < mid && sib.previousElementSibling !== plDrag.li) {
+        playlistEl.insertBefore(plDrag.li, sib);
+        break;
+      } else if (y >= mid && sib.nextElementSibling !== plDrag.li) {
+        playlistEl.insertBefore(plDrag.li, sib.nextElementSibling);
+        break;
+      }
+    }
+  });
+  function endPlaylistDrag(e){
+    if (!plDrag || e.pointerId !== plDrag.pointerId) return;
+    plDrag.li.classList.remove('pl-dragging');
+    const newOrderIds = [...playlistEl.querySelectorAll('li[data-pl-draggable]')].map(li => li.dataset.plTrackId);
+    plDrag = null;
+    applyPlaylistReorder(playlistFilterId, newOrderIds);
+  }
+  playlistEl.addEventListener('pointerup', endPlaylistDrag);
+  playlistEl.addEventListener('pointercancel', endPlaylistDrag);
 
   function toggleFavorite(index){
     const t = tracks[index];
@@ -5776,17 +6050,21 @@
       fadeDuration = 0;
       if (storageAvailable) { try { window.localStorage.removeItem(STORAGE_KEY_FADE); } catch (e) {} }
       if (masterGain) masterGain.gain.value = 1;
+      applyAccent('brass');
+      if (storageAvailable) { try { window.localStorage.removeItem(STORAGE_KEY_ACCENT); } catch (e) {} }
+      applyLanguage('en');
+      if (storageAvailable) { try { window.localStorage.removeItem(STORAGE_KEY_LANG); } catch (e) {} }
       setTheme('dark');
       setLibraryViewMode('songs');
       announce('Library and settings reset');
-      btnResetAll.textContent = 'Reset library and settings';
+      btnResetAll.textContent = t('settings.resetAll');
       btnResetAll.dataset.confirming = 'false';
     } else {
-      btnResetAll.textContent = 'Tap again to confirm reset';
+      btnResetAll.textContent = t('settings.resetAllConfirm');
       btnResetAll.dataset.confirming = 'true';
       setTimeout(() => {
         if (btnResetAll.dataset.confirming === 'true') {
-          btnResetAll.textContent = 'Reset library and settings';
+          btnResetAll.textContent = t('settings.resetAll');
           btnResetAll.dataset.confirming = 'false';
         }
       }, 4000);
@@ -6074,12 +6352,204 @@
     document.documentElement.setAttribute('data-theme', theme);
     themeButtons.forEach(b => b.setAttribute('aria-pressed', b.getAttribute('data-theme-choice') === theme ? 'true' : 'false'));
     if (storageAvailable) { try { window.localStorage.setItem(STORAGE_KEY_THEME, theme); } catch (e) {} }
+    applyAccent(currentAccent);
   }
   themeButtons.forEach(btn => {
     btn.addEventListener('click', () => {
       const theme = btn.getAttribute('data-theme-choice');
       setTheme(theme);
-      announce(theme === 'light' ? 'Light theme on' : 'Dark theme on');
+      announce(theme === 'light' ? t('theme.lightOn') : t('theme.darkOn'));
+    });
+  });
+
+  // ---------- Accent color ----------
+  const STORAGE_KEY_ACCENT = 'spool_accent_v1';
+  const ACCENT_PRESETS = {
+    brass:   { dark: { main: '#C9A15D', bright: '#E4BE7E' }, light: { main: '#A97E3C', bright: '#8C6528' } },
+    teal:    { dark: { main: '#5C8A82', bright: '#7FB0A7' }, light: { main: '#3F695F', bright: '#2E4F47' } },
+    rose:    { dark: { main: '#C97A8A', bright: '#E39CAA' }, light: { main: '#B0455A', bright: '#8C3548' } },
+    indigo:  { dark: { main: '#7C87C9', bright: '#9CA6E0' }, light: { main: '#4F5AA3', bright: '#3B4480' } },
+    sage:    { dark: { main: '#8FA37D', bright: '#AABF98' }, light: { main: '#5D7A4C', bright: '#44602F' } },
+    crimson: { dark: { main: '#C9615C', bright: '#E2857F' }, light: { main: '#A83E38', bright: '#832E29' } },
+  };
+  const ACCENT_LABELS = { brass: 'Brass', teal: 'Teal', rose: 'Rose', indigo: 'Indigo', sage: 'Sage', crimson: 'Crimson' };
+  let currentAccent = 'brass';
+  function hexToRgbTriple(hex){
+    const clean = hex.replace('#', '');
+    const r = parseInt(clean.substring(0, 2), 16);
+    const g = parseInt(clean.substring(2, 4), 16);
+    const b = parseInt(clean.substring(4, 6), 16);
+    return `${r}, ${g}, ${b}`;
+  }
+  function applyAccent(name){
+    const preset = ACCENT_PRESETS[name] ? name : 'brass';
+    currentAccent = preset;
+    const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+    const { main, bright } = ACCENT_PRESETS[preset][isLight ? 'light' : 'dark'];
+    const rootStyle = document.documentElement.style;
+    rootStyle.setProperty('--brass', main);
+    rootStyle.setProperty('--brass-rgb', hexToRgbTriple(main));
+    rootStyle.setProperty('--brass-bright', bright);
+    rootStyle.setProperty('--focus', `3px solid ${bright}`);
+    accentButtons.forEach(b => b.setAttribute('aria-pressed', b.dataset.accent === preset ? 'true' : 'false'));
+  }
+  accentButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const name = btn.dataset.accent;
+      applyAccent(name);
+      if (storageAvailable) { try { window.localStorage.setItem(STORAGE_KEY_ACCENT, name); } catch (e) {} }
+      announce(t('accent.announceSet').replace('{name}', t('accent.name.' + name) || ACCENT_LABELS[name] || name));
+    });
+  });
+
+  // ---------- Interface language ----------
+  const STORAGE_KEY_LANG = 'spool_lang_v1';
+  const langButtons = document.querySelectorAll('[data-lang-choice]');
+  const I18N = {
+    en: {
+      'app.tagline': 'Play music straight from your Files app',
+      'common.undo': 'Undo', 'common.back': '‹ Back', 'common.shuffle': 'Shuffle',
+      'common.playNext': 'Play next', 'common.delete': 'Delete', 'common.done': 'Done',
+      'common.off': 'Off', 'common.refresh': 'Refresh',
+      'player.noTrackSelected': 'No track selected', 'player.tapToOpen': 'Tap to open Now Playing',
+      'player.nowPlaying': 'Now Playing', 'player.upNext': 'Up Next',
+      'tabs.library': 'Library', 'tabs.playlists': 'Playlists', 'tabs.add': 'Add Music', 'tabs.settings': 'Settings',
+      'library.emptyPre': 'No tracks yet. ', 'library.emptyGoAdd': 'Go to Add Music', 'library.emptyPost': ' to load songs from your Files app.',
+      'library.songs': 'Songs', 'library.albums': 'Albums', 'library.artists': 'Artists',
+      'library.searchLabel': 'Search your library', 'library.searchPlaceholder': 'Search your library…',
+      'library.sortLabel': 'Sort tracks', 'library.filterByPlaylistLabel': 'Filter by playlist',
+      'library.select': 'Select', 'library.tracksHeading': 'Tracks', 'library.jumpToPlaying': 'Jump to playing',
+      'sort.added': 'Recently added', 'sort.recent': 'Recently played', 'sort.plays': 'Most played', 'sort.name': 'Name A–Z', 'sort.duration': 'Duration',
+      'sort.custom': 'Custom order', 'library.dragToReorder': 'Drag to reorder',
+      'filter.allTracks': 'All tracks', 'filter.favorites': '★ Favorites', 'filter.newIcon': '🆕', 'filter.unplayed': 'unplayed',
+      'batch.selectAll': 'Select all', 'batch.favorite': '★ Favorite', 'batch.addToPlaylist': 'Add to playlist…',
+      'playlists.smartMixesLabel': 'Smart Mixes', 'playlists.smartMixesDesc': 'Auto-built from your genres, decades, and tempo — no setup needed.',
+      'playlists.smartMixesEmpty': 'Add some tracks with genre or year tags to see mixes here.',
+      'playlists.newLabel': 'New playlist name', 'playlists.newPlaceholder': 'New playlist name…', 'playlists.create': 'Create',
+      'playlists.empty': `No playlists yet. Create one above, or add a track to a new playlist from your Library's "⋯" menu.`,
+      'add.heading': 'Add your songs',
+      'add.description': 'Choose MP3 or FLAC files from your device — or drag and drop them here. Nothing is uploaded — everything plays locally, right in this window.',
+      'add.chooseFiles': 'Choose files', 'add.chooseFolder': 'Choose folder', 'add.clearLibrary': 'Clear library',
+      'settings.listeningStatsLabel': 'Listening stats', 'settings.listeningStatsDesc': `Total time listened, top tracks & artists, this week's recap`,
+      'settings.viewStats': 'View stats', 'settings.duplicatesLabel': 'Duplicate tracks', 'settings.duplicatesDesc': 'Find tracks that appear more than once in your library',
+      'settings.scanLibrary': 'Scan library', 'settings.storageLabel': 'Storage',
+      'settings.soundPlaybackHeading': 'Sound & Playback', 'settings.soundProfileLegend': 'Sound profile',
+      'quality.standard': 'Standard', 'quality.warm': 'Warm', 'quality.bright': 'Bright', 'quality.voice': 'Voice', 'quality.custom': 'Custom',
+      'eq.bass': 'Bass', 'eq.mid': 'Mid', 'eq.treble': 'Treble', 'settings.speedLegend': 'Playback speed',
+      'settings.sleepTimerLabel': 'Sleep timer', 'settings.sleepTimerDesc': 'Automatically pause after a set time',
+      'sleep.15': '15 minutes', 'sleep.30': '30 minutes', 'sleep.45': '45 minutes', 'sleep.60': '60 minutes', 'sleep.end': 'End of current track',
+      'settings.timerStatusLabel': 'Timer status',
+      'settings.fadeLabel': 'Fade between tracks', 'settings.fadeDesc': 'Smoothly fade out and in when a track changes',
+      'fade.quick': 'Quick (1.5s)', 'fade.smooth': 'Smooth (3s)', 'settings.spatialLegend': 'Spatial audio', 'spatial.normal': 'Normal',
+      'settings.appearanceHeading': 'Appearance', 'settings.themeLabel': 'Theme', 'theme.dark': 'Dark', 'theme.light': 'Light',
+      'theme.darkOn': 'Dark theme on', 'theme.lightOn': 'Light theme on',
+      'settings.accentLabel': 'Accent color', 'accent.brass': 'Brass (default)', 'accent.teal': 'Teal', 'accent.rose': 'Rose',
+      'accent.indigo': 'Indigo', 'accent.sage': 'Sage', 'accent.crimson': 'Crimson', 'settings.languageLabel': 'App language',
+      'accent.name.brass': 'Brass', 'accent.name.teal': 'Teal', 'accent.name.rose': 'Rose', 'accent.name.indigo': 'Indigo',
+      'accent.name.sage': 'Sage', 'accent.name.crimson': 'Crimson', 'accent.announceSet': '{name} accent color set',
+      'settings.notifySoundsLabel': 'Notification sounds', 'settings.keepEffectsLabel': 'Keep effects on lock screen (experimental)',
+      'settings.analyzeImportLabel': 'Analyze tempo right after importing', 'settings.keyboardHeading': 'Keyboard & VoiceOver',
+      'settings.dataHeading': 'Data', 'settings.exportBackup': 'Export favorites & playlists', 'settings.importBackup': 'Import backup',
+      'settings.resetAll': 'Reset library and settings',
+      'settings.resetAllConfirm': 'Tap again to confirm reset',
+      'sheet.trackActions': 'Track Actions', 'sheet.addToQueue': 'Add to queue', 'sheet.moveUp': 'Move up', 'sheet.moveDown': 'Move down',
+      'sheet.rename': 'Rename', 'sheet.trackDetails': 'Track details', 'sheet.removeFromLibrary': 'Remove from library',
+      'sheet.addToPlaylistHeading': 'Add to Playlist', 'sheet.queue': 'Queue', 'sheet.listeningStats': 'Listening Stats',
+      'sheet.duplicateTracks': 'Duplicate Tracks', 'sheet.findDuplicates': 'Find duplicate tracks', 'sheet.libraryOptions': 'Library Options',
+      'sheet.clearLibraryEllipsis': 'Clear library…',
+      'sheet.playlistOptions': 'Playlist Options', 'playlists.open': 'Open playlist', 'playlists.delete': 'Delete playlist',
+      'playlists.deleteConfirm': 'Tap again to delete', 'playlists.renameLabel': 'Playlist name', 'playlists.save': 'Save',
+      'stats.allTime': 'All-time listening', 'stats.thisWeek': 'This week', 'stats.last7Days': 'Last 7 days',
+      'stats.topTracks': 'Top tracks', 'stats.topArtists': 'Top artists',
+    },
+    es: {
+      'app.tagline': 'Reproducí música directo desde tu app de Archivos',
+      'common.undo': 'Deshacer', 'common.back': '‹ Atrás', 'common.shuffle': 'Aleatorio',
+      'common.playNext': 'Reproducir a continuación', 'common.delete': 'Eliminar', 'common.done': 'Listo',
+      'common.off': 'Desactivado', 'common.refresh': 'Actualizar',
+      'player.noTrackSelected': 'Ninguna canción seleccionada', 'player.tapToOpen': 'Tocá para abrir Reproduciendo',
+      'player.nowPlaying': 'Reproduciendo', 'player.upNext': 'A continuación',
+      'tabs.library': 'Biblioteca', 'tabs.playlists': 'Listas', 'tabs.add': 'Agregar música', 'tabs.settings': 'Ajustes',
+      'library.emptyPre': 'Todavía no hay canciones. ', 'library.emptyGoAdd': 'Ir a Agregar música', 'library.emptyPost': ' para cargar canciones desde tu app de Archivos.',
+      'library.songs': 'Canciones', 'library.albums': 'Álbumes', 'library.artists': 'Artistas',
+      'library.searchLabel': 'Buscar en tu biblioteca', 'library.searchPlaceholder': 'Buscar en tu biblioteca…',
+      'library.sortLabel': 'Ordenar canciones', 'library.filterByPlaylistLabel': 'Filtrar por lista',
+      'library.select': 'Seleccionar', 'library.tracksHeading': 'Canciones', 'library.jumpToPlaying': 'Ir a la que suena',
+      'sort.added': 'Agregadas recientemente', 'sort.recent': 'Reproducidas recientemente', 'sort.plays': 'Más reproducidas', 'sort.name': 'Nombre A–Z', 'sort.duration': 'Duración',
+      'sort.custom': 'Orden personalizado', 'library.dragToReorder': 'Arrastrá para reordenar',
+      'filter.allTracks': 'Todas las canciones', 'filter.favorites': '★ Favoritas', 'filter.newIcon': '🆕', 'filter.unplayed': 'sin reproducir',
+      'batch.selectAll': 'Seleccionar todas', 'batch.favorite': '★ Favorita', 'batch.addToPlaylist': 'Agregar a lista…',
+      'playlists.smartMixesLabel': 'Mezclas inteligentes', 'playlists.smartMixesDesc': 'Creadas automáticamente según tus géneros, décadas y tempo — sin configurar nada.',
+      'playlists.smartMixesEmpty': 'Agregá canciones con etiquetas de género o año para ver mezclas acá.',
+      'playlists.newLabel': 'Nombre de la nueva lista', 'playlists.newPlaceholder': 'Nombre de la nueva lista…', 'playlists.create': 'Crear',
+      'playlists.empty': 'Todavía no hay listas. Creá una arriba, o agregá una canción a una lista nueva desde el menú "⋯" de tu Biblioteca.',
+      'add.heading': 'Agregá tus canciones',
+      'add.description': 'Elegí archivos MP3 o FLAC desde tu dispositivo — o arrastralos y soltalos acá. No se sube nada — todo se reproduce localmente, en esta misma ventana.',
+      'add.chooseFiles': 'Elegir archivos', 'add.chooseFolder': 'Elegir carpeta', 'add.clearLibrary': 'Vaciar biblioteca',
+      'settings.listeningStatsLabel': 'Estadísticas de escucha', 'settings.listeningStatsDesc': 'Tiempo total escuchado, canciones y artistas más escuchados, resumen semanal',
+      'settings.viewStats': 'Ver estadísticas', 'settings.duplicatesLabel': 'Canciones duplicadas', 'settings.duplicatesDesc': 'Encontrá canciones que aparecen más de una vez en tu biblioteca',
+      'settings.scanLibrary': 'Escanear biblioteca', 'settings.storageLabel': 'Almacenamiento',
+      'settings.soundPlaybackHeading': 'Sonido y reproducción', 'settings.soundProfileLegend': 'Perfil de sonido',
+      'quality.standard': 'Estándar', 'quality.warm': 'Cálido', 'quality.bright': 'Brillante', 'quality.voice': 'Voz', 'quality.custom': 'Personalizado',
+      'eq.bass': 'Graves', 'eq.mid': 'Medios', 'eq.treble': 'Agudos', 'settings.speedLegend': 'Velocidad de reproducción',
+      'settings.sleepTimerLabel': 'Temporizador para dormir', 'settings.sleepTimerDesc': 'Pausa automáticamente después de un tiempo definido',
+      'sleep.15': '15 minutos', 'sleep.30': '30 minutos', 'sleep.45': '45 minutos', 'sleep.60': '60 minutos', 'sleep.end': 'Al final de la canción actual',
+      'settings.timerStatusLabel': 'Estado del temporizador',
+      'settings.fadeLabel': 'Fundido entre canciones', 'settings.fadeDesc': 'Atenúa suavemente al cambiar de canción',
+      'fade.quick': 'Rápido (1.5s)', 'fade.smooth': 'Suave (3s)', 'settings.spatialLegend': 'Audio espacial', 'spatial.normal': 'Normal',
+      'settings.appearanceHeading': 'Apariencia', 'settings.themeLabel': 'Tema', 'theme.dark': 'Oscuro', 'theme.light': 'Claro',
+      'theme.darkOn': 'Tema oscuro activado', 'theme.lightOn': 'Tema claro activado',
+      'settings.accentLabel': 'Color de acento', 'accent.brass': 'Bronce (predeterminado)', 'accent.teal': 'Verde azulado', 'accent.rose': 'Rosa',
+      'accent.indigo': 'Índigo', 'accent.sage': 'Salvia', 'accent.crimson': 'Carmesí', 'settings.languageLabel': 'Idioma de la app',
+      'accent.name.brass': 'Bronce', 'accent.name.teal': 'Verde azulado', 'accent.name.rose': 'Rosa', 'accent.name.indigo': 'Índigo',
+      'accent.name.sage': 'Salvia', 'accent.name.crimson': 'Carmesí', 'accent.announceSet': 'Color de acento: {name}',
+      'settings.notifySoundsLabel': 'Sonidos de notificación', 'settings.keepEffectsLabel': 'Mantener efectos con la pantalla bloqueada (experimental)',
+      'settings.analyzeImportLabel': 'Analizar tempo justo después de importar', 'settings.keyboardHeading': 'Teclado y VoiceOver',
+      'settings.dataHeading': 'Datos', 'settings.exportBackup': 'Exportar favoritas y listas', 'settings.importBackup': 'Importar copia de seguridad',
+      'settings.resetAll': 'Restablecer biblioteca y ajustes',
+      'settings.resetAllConfirm': 'Tocá de nuevo para confirmar',
+      'sheet.trackActions': 'Acciones de la canción', 'sheet.addToQueue': 'Agregar a la cola', 'sheet.moveUp': 'Mover arriba', 'sheet.moveDown': 'Mover abajo',
+      'sheet.rename': 'Renombrar', 'sheet.trackDetails': 'Detalles de la canción', 'sheet.removeFromLibrary': 'Quitar de la biblioteca',
+      'sheet.addToPlaylistHeading': 'Agregar a lista', 'sheet.queue': 'Cola', 'sheet.listeningStats': 'Estadísticas de escucha',
+      'sheet.duplicateTracks': 'Canciones duplicadas', 'sheet.findDuplicates': 'Buscar canciones duplicadas', 'sheet.libraryOptions': 'Opciones de biblioteca',
+      'sheet.clearLibraryEllipsis': 'Vaciar biblioteca…',
+      'sheet.playlistOptions': 'Opciones de la lista', 'playlists.open': 'Abrir lista', 'playlists.delete': 'Eliminar lista',
+      'playlists.deleteConfirm': 'Tocá de nuevo para eliminar', 'playlists.renameLabel': 'Nombre de la lista', 'playlists.save': 'Guardar',
+      'stats.allTime': 'Escucha total', 'stats.thisWeek': 'Esta semana', 'stats.last7Days': 'Últimos 7 días',
+      'stats.topTracks': 'Canciones más escuchadas', 'stats.topArtists': 'Artistas más escuchados',
+    },
+  };
+  let currentLang = 'en';
+  function t(key){ return (I18N[currentLang] && I18N[currentLang][key]) || I18N.en[key] || key; }
+  const I18N_DYNAMIC_PLACEHOLDER_KEYS = new Set(['player.noTrackSelected', 'player.tapToOpen']);
+  function applyLanguage(lang){
+    const dict = I18N[lang] ? lang : 'en';
+    currentLang = dict;
+    const strings = I18N[dict];
+    document.documentElement.setAttribute('lang', dict);
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+      const key = el.getAttribute('data-i18n');
+      // Skip "no track selected" placeholders while a track is actually loaded —
+      // those elements currently hold real track info, not the placeholder text.
+      if (I18N_DYNAMIC_PLACEHOLDER_KEYS.has(key) && currentIndex !== -1) return;
+      if (strings[key] !== undefined) el.textContent = strings[key];
+    });
+    document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+      const key = el.getAttribute('data-i18n-placeholder');
+      if (strings[key] !== undefined) el.setAttribute('placeholder', strings[key]);
+    });
+    document.querySelectorAll('[data-i18n-aria]').forEach(el => {
+      const key = el.getAttribute('data-i18n-aria');
+      if (strings[key] !== undefined) el.setAttribute('aria-label', strings[key]);
+    });
+    langButtons.forEach(b => b.setAttribute('aria-pressed', b.dataset.langChoice === dict ? 'true' : 'false'));
+  }
+  langButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const lang = btn.dataset.langChoice;
+      applyLanguage(lang);
+      if (storageAvailable) { try { window.localStorage.setItem(STORAGE_KEY_LANG, lang); } catch (e) {} }
+      announce(lang === 'es' ? 'Idioma cambiado a Español' : 'Language switched to English');
     });
   });
   btnToggleShortcuts.addEventListener('click', () => {
@@ -6095,6 +6565,14 @@
     try {
       const savedTheme = window.localStorage.getItem(STORAGE_KEY_THEME);
       if (savedTheme === 'light' || savedTheme === 'dark') setTheme(savedTheme);
+    } catch (e) {}
+    try {
+      const savedAccent = window.localStorage.getItem(STORAGE_KEY_ACCENT);
+      if (savedAccent && ACCENT_PRESETS[savedAccent]) applyAccent(savedAccent);
+    } catch (e) {}
+    try {
+      const savedLang = window.localStorage.getItem(STORAGE_KEY_LANG);
+      if (savedLang && I18N[savedLang]) applyLanguage(savedLang);
     } catch (e) {}
     try {
       const savedSpatial = window.localStorage.getItem(STORAGE_KEY_SPATIAL);
