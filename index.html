@@ -5528,7 +5528,23 @@
     (p && p.then ? p : Promise.resolve()).then(() => {
       audio.pause();
       isBackgroundHandoff = true;
-    }).catch(() => {});
+    }).catch(() => {
+      // bgAudio.play() can be refused here on some browsers (see
+      // primeBgAudio()'s comment above) even after priming — most often
+      // when the very first play of a session happens through a path that
+      // skips the priming step (e.g. resuming a previous session
+      // automatically rather than from a real tap). Left alone, `audio`
+      // would keep running un-paused while iOS silently suspends its Web
+      // Audio output a moment later: the UI still says "playing", but nothing
+      // is audible for the whole time the screen stays locked — reported as
+      // "music stops right away" with no way to tell anything went wrong
+      // until reopening the app. Pausing here instead — the same fallback
+      // handoffToForeground() already uses for its own equivalent failure —
+      // leaves a plainly paused state that the very next tap of Play can
+      // recover cleanly from, instead of a silently-stuck ghost-playing one.
+      audio.pause();
+      updatePlayButton(false);
+    });
   }
 
   function handoffToForeground(){
