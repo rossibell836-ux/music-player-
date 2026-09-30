@@ -5339,6 +5339,21 @@
       isCrossfading = false;
       audioB.pause();
     }
+    // Same idea for the background-safe element: if this jump happens while
+    // still mid-handoff back to the foreground (e.g. unlocking the phone
+    // and immediately tapping Shuffle, before handoffToForeground()'s own
+    // async play() has settled), isBackgroundHandoff can still read true
+    // here. Left alone, playAudio() below would route through bgAudio
+    // instead of `audio` — playing whatever bgAudio still had loaded (the
+    // track from before backgrounding) at the same time as the new track
+    // this call is trying to start, since bgAudio's own source is never
+    // touched below. Claim it immediately so playAudio() always takes the
+    // normal `audio` path for a fresh jump like this one.
+    if (isBackgroundHandoff || !bgAudio.paused) {
+      isBackgroundHandoff = false;
+      bgAudio.pause();
+      bgAdvancePending = false;
+    }
     currentIndex = index;
     playAttemptInProgress = false; // starting fresh — don't let a stale in-flight recovery attempt block this
     lastListenTickTime = null; // new track — don't count the jump as listened time
@@ -5520,6 +5535,7 @@
   function handoffToBackground(){
     if (keepEffectsInBackground) return;
     if (!audioCtx || audio.paused || isBackgroundHandoff || isCrossfading) return;
+    bgAdvancePending = false; // fresh handoff — don't inherit a stale flag from an earlier background session
     bgAudio.src = audio.src;
     bgAudio.currentTime = audio.currentTime;
     bgAudio.volume = audio.volume;
@@ -5578,6 +5594,14 @@
         audio.load();
       });
     }).then(() => {
+      // If a fresh track jump (Shuffle, tapping a row, ...) already ran
+      // while this was still in flight, loadTrack() has since taken full
+      // ownership of `audio` and its own source no longer matches what this
+      // handoff was about to resume — repositioning it now would yank
+      // whatever's already correctly playing back to the old paused spot.
+      // Just leave `audio` alone in that case; bgAudio still gets cleaned
+      // up below either way.
+      if (settled || !isBackgroundHandoff || audio.src !== currentTrack.url) return Promise.resolve();
       audio.currentTime = bgAudio.currentTime;
       audio.volume = bgAudio.volume;
       return audio.play();
@@ -5617,7 +5641,23 @@
   // this may not always get a chance to run before the OS fully suspends
   // the tab — if it doesn't, playback will just stop at the end of the
   // current track until the app is reopened. When it does run, keep going.
-  bgAudio.addEventListener('ended', () => {
+  //
+  // Starting the NEXT track is the fragile part, separately from that: a
+  // fresh bgAudio.play() call made from inside the 'ended' handler — i.e.
+  // after this track has fully stopped — can be silently refused by iOS
+  // even while the app otherwise still has enough background execution
+  // time to run this code at all. Metadata/lock-screen updates happen
+  // synchronously either way, so the visible symptom is exactly "the lock
+  // screen updates to the next song, but nothing plays and it never
+  // starts" — the play() call went through and was refused, not that this
+  // handler never ran. Advancing fractionally *before* the current track
+  // truly ends — while it's still actively playing — is much more likely
+  // to be treated as a continuation of the same still-active session
+  // rather than a fresh background-initiated start, so that's the primary
+  // path now; 'ended' is kept only as a fallback for the rare case a track
+  // ends before a 'timeupdate' tick catches the threshold below.
+  let bgAdvancePending = false;
+  function advanceBgTrack(){
     if (!isBackgroundHandoff) return;
     const next = advanceIndex(true);
     if (next === null || !tracks[next]) { isBackgroundHandoff = false; updatePlayButton(false); return; }
@@ -5628,12 +5668,26 @@
     markShufflePlayed(t);
     bgAudio.src = t.url;
     bgAudio.currentTime = 0;
+    bgAdvancePending = false;
     bgAudio.play().catch(() => { isBackgroundHandoff = false; });
     updateNowPlayingDisplay(t, currentIndex);
     renderPlaylist();
     getTrackMetadata(t);
+  }
+  bgAudio.addEventListener('timeupdate', () => {
+    if (!isBackgroundHandoff) return;
+    updateMediaSessionPosition();
+    trackListeningProgress(bgAudio);
+    if (!bgAdvancePending && repeatMode !== 'one' && bgAudio.duration && isFinite(bgAudio.duration) && bgAudio.duration - bgAudio.currentTime < 0.35) {
+      bgAdvancePending = true;
+      advanceBgTrack();
+    }
   });
-  bgAudio.addEventListener('timeupdate', () => { if (isBackgroundHandoff) { updateMediaSessionPosition(); trackListeningProgress(bgAudio); } });
+  bgAudio.addEventListener('ended', () => {
+    if (!isBackgroundHandoff) return;
+    if (bgAdvancePending) { bgAdvancePending = false; return; } // already advanced just above
+    advanceBgTrack();
+  });
   bgAudio.addEventListener('pause', () => { if (isBackgroundHandoff) updatePlayButton(false); });
   bgAudio.addEventListener('play', () => { if (isBackgroundHandoff) updatePlayButton(true); });
 
